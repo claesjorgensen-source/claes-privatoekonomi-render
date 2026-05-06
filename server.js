@@ -3,6 +3,8 @@ import { createServer as createHttpsServer } from "node:https";
 import { readFile, writeFile, mkdir, readdir, chmod } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { lookup } from "node:dns/promises";
+import net from "node:net";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -18,6 +20,7 @@ const EB_PRIVATE_KEY_FILE = path.join(DATA_DIR, "enablebanking-private.key");
 const EB_CERT_FILE = path.join(DATA_DIR, "enablebanking-public.crt");
 const GC_BASE_URL = "https://bankaccountdata.gocardless.com/api/v2";
 const EB_BASE_URL = "https://api.enablebanking.com";
+const LINK_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
 
 loadEnvFile(path.join(__dirname, ".env"));
 
@@ -425,6 +428,11 @@ async function handleApi(req, res, url) {
     const body = await readJsonBody(req);
     const prices = await lookupMarketPrices(Array.isArray(body.holdings) ? body.holdings : []);
     sendJson(res, 200, prices);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/link-preview") {
+    sendJson(res, 200, await fetchLinkPreview(url.searchParams.get("url") || ""));
     return;
   }
 
@@ -1346,6 +1354,253 @@ function loadEnvFile(filePath) {
     if (!(key in process.env)) process.env[key] = value;
   }
 }
+
+
+async function fetchLinkPreview(rawUrl) {
+  let current = await validateExternalUrl(rawUrl);
+  let response = null;
+  for (let redirects = 0; redirects < 5; redirects += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    try {
+      response = await fetch(current.href, {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/json;q=0.3,*/*;q=0.1",
+          "User-Agent": "ClaesPrivatoekonomiLinkPreview/1.0 (+private household app)",
+        },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (![301, 302, 303, 307, 308].includes(response.status)) break;
+    const location = response.headers.get("location");
+    if (!location) break;
+    current = await validateExternalUrl(new URL(location, current).href);
+  }
+  if (!response) throw new Error("Linket kunne ikke hentes.");
+  if (!response.ok) throw new Error(`Linket svarede ${response.status}.`);
+  const contentType = response.headers.get("content-type") || "";
+  const finalUrl = response.url ? await validateExternalUrl(response.url) : current;
+  if (!/text\/html|application\/xhtml\+xml|application\/json/i.test(contentType)) {
+    return { ok: true, url: finalUrl.href, title: titleFromUrl(finalUrl), imageUrl: "", price: null, currency: "DKK" };
+  }
+  const html = await readResponseTextLimited(response, LINK_PREVIEW_MAX_BYTES);
+  const metadata = extractLinkMetadata(html, finalUrl.href);
+  return { ok: true, url: finalUrl.href, ...metadata };
+}
+
+async function validateExternalUrl(rawUrl) {
+  let target;
+  try {
+    target = new URL(String(rawUrl || "").trim());
+  } catch {
+    throw new Error("Ugyldigt link.");
+  }
+  if (!["http:", "https:"].includes(target.protocol)) throw new Error("Kun http/https-links kan hentes.");
+  if (!target.hostname) throw new Error("Linket mangler host.");
+  await assertPublicHostname(target.hostname);
+  return target;
+}
+
+async function assertPublicHostname(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) throw new Error("Linket peger på et lokalt netværk.");
+  if (net.isIP(host)) {
+    if (isPrivateAddress(host)) throw new Error("Linket peger på en privat adresse.");
+    return;
+  }
+  const records = await lookup(host, { all: true, verbatim: true }).catch((error) => {
+    throw new Error(`Kunne ikke slå linkets host op: ${error.message}`);
+  });
+  if (!records.length || records.some((record) => isPrivateAddress(record.address))) throw new Error("Linket peger på en privat adresse.");
+}
+
+function isPrivateAddress(address) {
+  const ipVersion = net.isIP(address);
+  if (ipVersion === 4) {
+    const parts = address.split(".").map(Number);
+    const [a, b] = parts;
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
+  }
+  if (ipVersion === 6) {
+    const normalized = address.toLowerCase();
+    return normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe80") || normalized === "::";
+  }
+  return true;
+}
+
+async function readResponseTextLimited(response, maxBytes) {
+  const length = Number(response.headers.get("content-length") || 0);
+  if (length > maxBytes) throw new Error("Siden er for stor til link-preview.");
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) throw new Error("Siden er for stor til link-preview.");
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error("Siden er for stor til link-preview.");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+}
+
+function extractLinkMetadata(html, baseUrl) {
+  const title = cleanPreviewText(firstNonEmpty(
+    metaContent(html, ["og:title", "twitter:title"]),
+    jsonLdValue(html, "name"),
+    tagText(html, "h1"),
+    tagText(html, "title"),
+    titleFromUrl(new URL(baseUrl)),
+  ));
+  const imageRaw = firstNonEmpty(
+    metaContent(html, ["og:image:secure_url", "og:image", "twitter:image", "twitter:image:src"]),
+    jsonLdValue(html, "image"),
+    firstImageSrc(html),
+  );
+  const imageUrl = imageRaw ? safeAbsoluteUrl(imageRaw, baseUrl) : "";
+  const priceInfo = extractPrice(html);
+  return { title, imageUrl, price: priceInfo.price, currency: priceInfo.currency || "DKK" };
+}
+
+function firstNonEmpty(...values) {
+  return values.flat().find((value) => String(value || "").trim()) || "";
+}
+
+function metaContent(html, names = []) {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  const matches = [];
+  const metaRe = /<meta\b[^>]*>/gi;
+  let match;
+  while ((match = metaRe.exec(html))) {
+    const tag = match[0];
+    const name = attrValue(tag, "property") || attrValue(tag, "name") || attrValue(tag, "itemprop");
+    if (!wanted.has(String(name || "").toLowerCase())) continue;
+    const content = attrValue(tag, "content");
+    if (content) matches.push(decodeHtml(content));
+  }
+  return matches;
+}
+
+function attrValue(tag, attr) {
+  const re = new RegExp(`${attr}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i");
+  const match = tag.match(re);
+  return match ? (match[1] ?? match[2] ?? match[3] ?? "") : "";
+}
+
+function tagText(html, tagName) {
+  const re = new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i");
+  const match = html.match(re);
+  return match ? decodeHtml(stripTags(match[1])) : "";
+}
+
+function firstImageSrc(html) {
+  const match = html.match(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i);
+  return match ? decodeHtml(match[1] || match[2] || match[3] || "") : "";
+}
+
+function jsonLdValue(html, key) {
+  const scripts = Array.from(html.matchAll(/<script\b[^>]*type\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json)[^>]*>([\s\S]*?)<\/script>/gi));
+  for (const script of scripts) {
+    const raw = decodeHtml(script[1]).replace(/^\s*<!--|-->\s*$/g, "").trim();
+    if (!raw) continue;
+    try {
+      const value = findJsonLdKey(JSON.parse(raw), key);
+      if (value) return Array.isArray(value) ? value[0] : value;
+    } catch {}
+  }
+  return "";
+}
+
+function findJsonLdKey(value, key) {
+  if (!value || typeof value !== "object") return "";
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findJsonLdKey(item, key);
+      if (found) return found;
+    }
+    return "";
+  }
+  if (value[key]) return value[key];
+  if (value["@graph"]) return findJsonLdKey(value["@graph"], key);
+  if (value.offers) return findJsonLdKey(value.offers, key);
+  return "";
+}
+
+function extractPrice(html) {
+  const priceText = firstNonEmpty(
+    metaContent(html, ["product:price:amount", "og:price:amount", "price"]),
+    jsonLdValue(html, "price"),
+    itemPropContent(html, "price"),
+  );
+  const currency = firstNonEmpty(metaContent(html, ["product:price:currency", "og:price:currency", "priceCurrency"]), jsonLdValue(html, "priceCurrency"), itemPropContent(html, "priceCurrency"), "DKK");
+  const price = parsePreviewPrice(priceText);
+  return { price: Number.isFinite(price) ? price : null, currency: String(currency || "DKK").toUpperCase() };
+}
+
+function itemPropContent(html, prop) {
+  const re = new RegExp(`<[^>]+itemprop\\s*=\\s*(?:"${prop}"|'${prop}'|${prop})[^>]*>`, "i");
+  const match = html.match(re);
+  if (!match) return "";
+  return decodeHtml(attrValue(match[0], "content") || attrValue(match[0], "value") || "");
+}
+
+function parsePreviewPrice(value) {
+  const text = String(value || "").replace(/\s/g, "").replace(/kr\.?|dkk/gi, "");
+  if (!text) return NaN;
+  const cleaned = text.includes(",") && text.lastIndexOf(",") > text.lastIndexOf(".") ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
+  return Number(cleaned.replace(/[^0-9.\-]/g, ""));
+}
+
+function safeAbsoluteUrl(value, baseUrl) {
+  try {
+    const absolute = new URL(String(value || "").trim(), baseUrl);
+    return ["http:", "https:"].includes(absolute.protocol) ? absolute.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function cleanPreviewText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function titleFromUrl(url) {
+  return decodeURIComponent(String(url.pathname || "").split("/").filter(Boolean).at(-1) || url.hostname).replace(/[-_]+/g, " ");
+}
+
+function stripTags(value) {
+  return String(value || "").replace(/<[^>]+>/g, " ");
+}
+
+function decodeHtml(value) {
+  const named = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  return String(value || "").replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (_, entity) => {
+    const lower = entity.toLowerCase();
+    if (lower[0] === "#") {
+      const code = lower[1] === "x" ? parseInt(lower.slice(2), 16) : parseInt(lower.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+    }
+    return named[lower] ?? `&${entity};`;
+  });
+}
+
 
 async function readJsonBody(req) {
   const chunks = [];

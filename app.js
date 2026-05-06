@@ -51,6 +51,13 @@ const MOVING_STATUSES = [
   { id: "planned", label: "Planlagt" },
 ];
 
+const TOTALKREDIT_LINKS = [
+  { label: "Fast rente", url: "https://www.totalkredit.dk/boliglan/valg-af-lan/lantyper/fastforrentet/" },
+  { label: "F-kort", url: "https://www.totalkredit.dk/boliglan/valg-af-lan/lantyper/fkort/" },
+  { label: "Afdragsfrihed", url: "https://www.totalkredit.dk/boliglan/kob-af-bolig/bliv-klogere-pa-realkredit/laan-med-eller-uden-afdrag/" },
+  { label: "Dagens kurser", url: "https://www.totalkredit.dk/boliglan/kurser-og-priser/" },
+];
+
 const DEFAULT_MOVING_PROJECT = {
   title: "Ny lejlighed",
   shortTitle: "Ny lejlighed",
@@ -1899,6 +1906,9 @@ function renderMovingLoanPanel(project, summary) {
           <em>Fallback hvis fast kurs ikke er attraktiv</em>
         </div>
       </div>
+      <div class="totalkredit-links" aria-label="Totalkredit links">
+        ${TOTALKREDIT_LINKS.map((link) => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label)}</a>`).join("")}
+      </div>
     </article>`;
 }
 
@@ -1930,9 +1940,12 @@ function renderMovingAddForm() {
         <label class="field"><span>Fordeling</span><select class="select" name="split">${MOVING_SPLITS.map((split) => option(split.id, split.label, split.id === "shared")).join("")}</select></label>
         <label class="field"><span>Status</span><select class="select" name="status">${MOVING_STATUSES.map((status) => option(status.id, status.label, status.id === "bought")).join("")}</select></label>
         <label class="field move-wide"><span>Link</span><input class="input" name="link" type="url" placeholder="https://..." /></label>
-        <label class="field move-wide"><span>Billede-URL</span><input class="input" name="imageUrl" type="url" placeholder="valgfrit" /></label>
+        <label class="field move-wide"><span>Billede-URL</span><input class="input" name="imageUrl" type="url" placeholder="udfyldes fra link hvis muligt" /></label>
       </div>
-      <button class="button primary" type="submit">Tilføj til overblik</button>
+      <div class="move-form-actions">
+        <button class="button ghost" type="button" data-action="preview-moving-form-link">Hent fra link</button>
+        <button class="button primary" type="submit">Tilføj til overblik</button>
+      </div>
     </form>`;
 }
 
@@ -1984,7 +1997,7 @@ function renderMovingItemRow(item) {
           <div class="move-line-meta">
             <select class="move-mini-select" data-moving-item="${escapeHtml(item.id)}" data-moving-field="category">${MOVING_CATEGORIES.map((cat) => option(cat.id, cat.label, cat.id === item.category)).join("")}</select>
             <input class="move-line-input" data-moving-item="${escapeHtml(item.id)}" data-moving-field="link" value="${escapeHtml(item.link)}" placeholder="Link" />
-            ${item.link ? `<a href="${escapeHtml(item.link)}" target="_blank" rel="noreferrer">Åbn</a>` : ""}
+            ${item.link ? `<button class="link-button" type="button" data-action="preview-moving-item-link" data-id="${escapeHtml(item.id)}">Hent</button><a href="${escapeHtml(item.link)}" target="_blank" rel="noreferrer">Åbn</a>` : ""}
           </div>
           <input class="move-line-input muted" data-moving-item="${escapeHtml(item.id)}" data-moving-field="imageUrl" value="${escapeHtml(item.imageUrl)}" placeholder="Billede-URL" />
           ${custom ? `<div class="move-custom-split"><label>Claes %<input class="input" inputmode="decimal" data-moving-item="${escapeHtml(item.id)}" data-moving-field="claesSharePct" value="${escapeHtml(formatNumber(item.claesSharePct))}" /></label><label>Laura %<input class="input" inputmode="decimal" data-moving-item="${escapeHtml(item.id)}" data-moving-field="lauraSharePct" value="${escapeHtml(formatNumber(item.lauraSharePct))}" /></label></div>` : ""}
@@ -2003,6 +2016,65 @@ function movingItemImage(item) {
   if (explicit) return explicit;
   const link = String(item.link || "").trim();
   return /\.(png|jpe?g|webp|gif|avif|svg)(\?.*)?$/i.test(link) ? link : "";
+}
+
+function looksLikeUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function fetchLinkPreview(url) {
+  if (!looksLikeUrl(url)) throw new Error("Indsæt et gyldigt http/https-link først.");
+  return apiFetch(`/api/link-preview?url=${encodeURIComponent(url)}`);
+}
+
+async function previewMovingLinkForForm(form, { silent = false } = {}) {
+  if (!form) return;
+  const linkInput = form.querySelector('input[name="link"]');
+  const url = linkInput?.value?.trim() || "";
+  if (!looksLikeUrl(url)) {
+    if (!silent) notify("Indsæt et link først.", "danger");
+    return;
+  }
+  try {
+    if (!silent) notify("Henter titel og billede fra linket …");
+    const preview = await fetchLinkPreview(url);
+    const nameInput = form.querySelector('input[name="name"]');
+    const imageInput = form.querySelector('input[name="imageUrl"]');
+    const priceInput = form.querySelector('input[name="price"]');
+    if (preview.title && nameInput && !nameInput.value.trim()) nameInput.value = preview.title;
+    if (preview.imageUrl && imageInput && !imageInput.value.trim()) imageInput.value = preview.imageUrl;
+    if (preview.price && priceInput && !priceInput.value.trim()) priceInput.value = formatAmountInput(preview.price);
+    notify(preview.title || preview.imageUrl ? "Linket er læst ind. Ret evt. pris og fordeling før du tilføjer." : "Jeg kunne hente linket, men fandt ikke titel/billede.");
+  } catch (error) {
+    if (!silent) notify(`Kunne ikke hente fra link: ${error.message}`, "danger");
+  }
+}
+
+async function previewMovingLinkForItem(id) {
+  const project = getMovingProject();
+  const item = project.items.find((row) => row.id === id);
+  if (!item?.link || !looksLikeUrl(item.link)) {
+    notify("Linjen mangler et gyldigt link.", "danger");
+    return;
+  }
+  try {
+    notify("Henter titel og billede fra linket …");
+    const preview = await fetchLinkPreview(item.link);
+    if (preview.title) item.name = preview.title;
+    if (preview.imageUrl) item.imageUrl = preview.imageUrl;
+    if (preview.price && !item.price) item.price = Number(preview.price || 0);
+    item.updatedAt = new Date().toISOString();
+    saveState();
+    render();
+    notify("Linjen blev opdateret fra linket.");
+  } catch (error) {
+    notify(`Kunne ikke hente fra link: ${error.message}`, "danger");
+  }
 }
 
 function updateMovingItemField(id, field, value) {
@@ -4568,6 +4640,16 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "preview-moving-form-link") {
+    await previewMovingLinkForForm(button.closest("form"));
+    return;
+  }
+
+  if (action === "preview-moving-item-link") {
+    await previewMovingLinkForItem(id);
+    return;
+  }
+
   if (action === "delete-moving-item") {
     const project = getMovingProject();
     const item = project.items.find((row) => row.id === id);
@@ -5223,6 +5305,11 @@ async function handleSubmit(event) {
 
 function handleChange(event) {
   const target = event.target;
+
+  if (target.name === "link" && target.closest("#moving-item-form") && looksLikeUrl(target.value)) {
+    previewMovingLinkForForm(target.closest("form"), { silent: true });
+    return;
+  }
 
   if (target.dataset.movingItem && target.dataset.movingField) {
     const changed = updateMovingItemField(target.dataset.movingItem, target.dataset.movingField, target.value);
