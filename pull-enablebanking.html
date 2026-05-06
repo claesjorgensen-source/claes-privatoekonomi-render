@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Træk Enable Banking ind · Claes' privatøkonomi</title>
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f3f6ef; color: #10231d; }
+    main { max-width: 760px; padding: 32px; border: 1px solid rgba(16,35,29,.13); border-radius: 28px; background: rgba(255,250,241,.92); box-shadow: 0 22px 70px rgba(25,29,27,.08); }
+    h1 { margin: 0 0 12px; font-size: clamp(2rem, 6vw, 4rem); line-height: .95; letter-spacing: -.06em; }
+    p, li { color: #64746c; line-height: 1.55; }
+    .status { margin-top: 18px; padding: 14px 16px; border-radius: 16px; background: rgba(0,122,83,.08); color: #00573f; font-weight: 800; white-space: pre-wrap; }
+    .error { background: rgba(169,71,58,.08); color: #a9473a; }
+    a, button { display: inline-flex; margin-top: 14px; color: #fffaf1; background: #00573f; border: 0; border-radius: 999px; padding: 11px 16px; font-weight: 800; text-decoration: none; cursor: pointer; }
+    .ghost { background: transparent; color: #00573f; border: 1px solid rgba(16,35,29,.16); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Trækker bankdata ind</h1>
+    <p>Jeg henter konti og posteringer fra Enable Banking, mapper dem til jeres lokale konti og gemmer dem i denne browsers lokale data.</p>
+    <p class="status" id="status">Starter…</p>
+    <p>
+      <button id="run" type="button">Kør igen</button>
+      <a class="ghost" href="/?fresh=1#overblik">Åbn overblik</a>
+    </p>
+  </main>
+
+<script>
+const STORAGE_KEY = "finansblik:v1";
+
+const defaultAccounts = [
+  { id: "acc-sparekassen", name: "Sparekassen Kronjylland", type: "Bankkonto", balance: 0 },
+  { id: "acc-bolig", name: "Boligkonto", type: "Boligkonto", balance: 0 },
+  { id: "acc-faelles-forbrug", name: "Fælles forbrugskonto", type: "Fælleskonto", balance: 0 },
+  { id: "acc-faelles-sommerhus", name: "Fælles sommerhuskonto", type: "Sommerhus", balance: 0 },
+  { id: "acc-faellesbudget", name: "Fællesbudget konto", type: "Budgetkonto", balance: 0 },
+];
+
+const defaultCategories = [
+  { id: "cat-salary", name: "Indkomst", kind: "income", color: "#1f7a4d" },
+  { id: "cat-groceries", name: "Husholdning", kind: "expense", color: "#b9752f" },
+  { id: "cat-housing", name: "Bolig & regninger", kind: "expense", color: "#245f56" },
+  { id: "cat-transport", name: "Transport", kind: "expense", color: "#5069a8" },
+  { id: "cat-family", name: "Familie", kind: "expense", color: "#b4617b" },
+  { id: "cat-lifestyle", name: "Fritid & mad ude", kind: "expense", color: "#c48b40" },
+  { id: "cat-shopping", name: "Diverse forbrug", kind: "expense", color: "#8c6f39" },
+  { id: "cat-health", name: "Sundhed", kind: "expense", color: "#8f5e55" },
+  { id: "cat-transfer", name: "Intern overførsel", kind: "transfer", color: "#6f746c" },
+  { id: "cat-savings", name: "Opsparing/investering", kind: "transfer", color: "#00573f" },
+  { id: "cat-reimburse", name: "Udlæg/refusion", kind: "transfer", color: "#71806a" },
+  { id: "cat-other", name: "Ukendt", kind: "expense", color: "#8a8d84" },
+];
+
+const categoryMergeMap = { "cat-insurance": "cat-housing", "cat-subscriptions": "cat-housing", "cat-fees": "cat-housing", "cat-foodout": "cat-lifestyle", "cat-travel": "cat-lifestyle", "cat-investment": "cat-savings" };
+
+const defaultRules = [
+  ["netto", "cat-groceries"], ["rema", "cat-groceries"], ["føtex", "cat-groceries"], ["coop", "cat-groceries"],
+  ["løn", "cat-salary"], ["loen", "cat-salary"], ["husleje", "cat-housing"], ["norlys", "cat-housing"], ["forsikring", "cat-housing"], ["betalingsservice", "cat-housing"],
+  ["dsb", "cat-transport"], ["vuggestue", "cat-family"], ["institution", "cat-family"],
+  ["restaurant", "cat-lifestyle"], ["cafe", "cat-lifestyle"], ["bistro", "cat-lifestyle"], ["spotify", "cat-lifestyle"], ["netflix", "cat-lifestyle"],
+  ["mobilepay", "cat-reimburse"], ["overførsel", "cat-transfer"], ["overforsel", "cat-transfer"],
+  ["opsparing", "cat-savings"], ["saxo", "cat-savings"], ["nordnet", "cat-savings"], ["depot", "cat-savings"],
+].map(([keyword, categoryId], index) => ({ id: `rule_force_${index}_${keyword}`, keyword, categoryId }));
+
+function currentMonthKey() { return new Date().toISOString().slice(0, 7); }
+function todayISO() { return new Date().toISOString().slice(0, 10); }
+function uid(prefix) { return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`; }
+function normalize(value) { return String(value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/æ/g,"ae").replace(/ø/g,"oe").replace(/å/g,"aa").trim(); }
+function simpleHash(value) { let hash = 0; const text = String(value || ""); for (let i=0;i<text.length;i++) hash = Math.imul(31, hash) + text.charCodeAt(i) | 0; return Math.abs(hash).toString(36); }
+function txFingerprint(tx) { return [tx.accountId, tx.date, Number(tx.amount).toFixed(2), normalize(tx.description)].join("|"); }
+function textSimilarity(a, b) { const l = new Set(normalize(a).split(/\W+/).filter(w => w.length >= 3)); const r = new Set(normalize(b).split(/\W+/).filter(w => w.length >= 3)); if (!l.size || !r.size) return 0; let n = 0; for (const w of l) if (r.has(w)) n += 1; return n / Math.max(l.size, r.size); }
+
+function createState() {
+  return {
+    version: 1,
+    settings: { householdName: "Claes' privatøkonomi", members: "Claes", selectedMonth: "2026-04", createdAt: new Date().toISOString() },
+    accounts: [...defaultAccounts],
+    categories: [...defaultCategories],
+    rules: [...defaultRules],
+    transactions: [],
+    bankSync: { accounts: [], accountMappings: {}, lastSyncAt: "", config: null, autoSyncOnOpen: false, enableBanking: { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 } },
+  };
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const state = raw ? JSON.parse(raw) : createState();
+    state.version = 1;
+    state.settings ||= { householdName: "Claes' privatøkonomi", selectedMonth: currentMonthKey() };
+    state.accounts ||= [];
+    state.categories ||= [];
+    state.rules ||= [];
+    state.transactions ||= [];
+    state.bankSync ||= { accounts: [], accountMappings: {}, enableBanking: {} };
+    state.bankSync.accountMappings ||= {};
+    state.bankSync.enableBanking ||= {};
+    state.bankSync.enableBanking.accounts ||= [];
+    state.transactions = state.transactions.map(tx => ({ ...tx, categoryId: categoryMergeMap[tx.categoryId] || tx.categoryId || "cat-other" }));
+    state.rules = state.rules.map(rule => ({ ...rule, categoryId: categoryMergeMap[rule.categoryId] || rule.categoryId })).filter(rule => defaultCategories.some(category => category.id === rule.categoryId));
+    mergeDefaults(state.accounts, defaultAccounts, "name");
+    state.categories = defaultCategories.map(category => ({ ...category }));
+    mergeDefaults(state.rules, defaultRules, "id");
+    return state;
+  } catch {
+    return createState();
+  }
+}
+
+function mergeDefaults(target, defaults, key) {
+  const seen = new Set(target.map(item => normalize(item[key])));
+  for (const item of defaults) if (!seen.has(normalize(item[key]))) target.push({ ...item });
+}
+
+function findAccountByName(state, name) {
+  const wanted = normalize(name);
+  return state.accounts.find(account => normalize(account.name) === wanted);
+}
+
+function ensureAccount(state, name, type = "Bankkonto", balance = 0) {
+  const existing = findAccountByName(state, name);
+  if (existing) {
+    if (Number.isFinite(balance) && balance) existing.balance = balance;
+    return existing.id;
+  }
+  const account = { id: `eb_acc_${simpleHash(name)}`, name, type, balance: Number(balance || 0) };
+  state.accounts.push(account);
+  return account.id;
+}
+
+function localAccountForRemote(account) {
+  // Account mapping is intentionally generic in the public deploy mirror.
+  // The hosted app's real account names come from the private Supabase state.
+  const name = account.name || account.product || "Enable Banking konto";
+  return { name, type: "Bankkonto" };
+}
+
+function balanceOf(account) {
+  const first = account.balances?.[0];
+  const amount = first?.balance_amount?.amount ?? first?.balanceAmount?.amount ?? first?.amount;
+  const parsed = Number(amount);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+const MCC_CATEGORY_RULES = [
+  { categoryId: "cat-groceries", codes: ["5411", "5422", "5441", "5451", "5462", "5499"] },
+  { categoryId: "cat-lifestyle", ranges: [[5811, 5814], [7011, 7033], [7832, 7999]] },
+  { categoryId: "cat-transport", codes: ["4111", "4112", "4121", "4131", "4789", "5541", "5542", "7523"] },
+  { categoryId: "cat-housing", codes: ["4812", "4814", "4816", "4821", "4899", "4900", "6300", "6513"] },
+  { categoryId: "cat-health", ranges: [[5912, 5912], [8011, 8099]] },
+  { categoryId: "cat-family", codes: ["5945", "8211", "8220", "8241", "8244", "8249", "8299", "8351"] },
+  { categoryId: "cat-shopping", ranges: [[5200, 5399], [5600, 5735], [5940, 5999]] },
+];
+
+function matchCategoryByMcc(mcc) {
+  const code = String(mcc || "").replace(/\D/g, "");
+  if (!code) return "";
+  const numeric = Number(code);
+  const match = MCC_CATEGORY_RULES.find(rule => rule.codes?.includes(code) || rule.ranges?.some(([from, to]) => numeric >= from && numeric <= to));
+  return match?.categoryId || "";
+}
+
+function matchCategory(state, remote) {
+  const openBanking = remote.openBanking || {};
+  const mccCategory = matchCategoryByMcc(remote.merchantCategoryCode || openBanking.merchantCategoryCode);
+  if (mccCategory) return mccCategory;
+  const text = normalize([remote.description, remote.counterpartyName, openBanking.remittanceText].filter(Boolean).join(" "));
+  const rule = state.rules.find(rule => text.includes(normalize(rule.keyword)));
+  return rule?.categoryId || "cat-other";
+}
+
+function backfillOpenBankingMetadata(transaction, remote) {
+  const openBanking = remote.openBanking || {};
+  transaction.merchantCategoryCode ||= remote.merchantCategoryCode || openBanking.merchantCategoryCode || "";
+  transaction.bankTransactionCode ||= remote.bankTransactionCode || openBanking.bankTransactionCode || "";
+  transaction.counterpartyName ||= remote.counterpartyName || openBanking.counterpartyName || "";
+  transaction.counterpartyAccount ||= remote.counterpartyAccount || openBanking.counterpartyAccount || "";
+  transaction.openBanking = { ...(transaction.openBanking || {}), ...openBanking };
+  if (!transaction.relationKey && (remote.relationKey || transaction.counterpartyName)) transaction.relationKey = remote.relationKey || transaction.counterpartyName;
+}
+
+function likelyDuplicate(state, tx) {
+  return state.transactions.find(existing => {
+    if (existing.accountId !== tx.accountId) return false;
+    if (existing.date !== tx.date) return false;
+    if (Math.abs(Number(existing.amount || 0) - Number(tx.amount || 0)) > 0.01) return false;
+    if (existing.externalId && tx.externalId && existing.externalId === tx.externalId) return true;
+    if (txFingerprint(existing) === txFingerprint(tx)) return true;
+    return textSimilarity(existing.description, tx.description) >= 0.28;
+  });
+}
+
+async function api(path) {
+  const response = await fetch(path, { headers: { Accept: "application/json" } });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) throw new Error(data?.message || data?.error || `API-fejl ${response.status}`);
+  return data;
+}
+
+async function run() {
+  const status = document.getElementById("status");
+  status.className = "status";
+  try {
+    const params = new URLSearchParams(location.search);
+    const dateFrom = params.get("from") || "2026-04-01";
+    const dateTo = params.get("to") || todayISO();
+
+    status.textContent = "Henter konti…";
+    const accountsData = await api("/api/enablebanking/accounts");
+    const remoteAccounts = accountsData.accounts || [];
+
+    const state = loadState();
+    for (const remote of remoteAccounts) {
+      const suggested = localAccountForRemote(remote);
+      const accountId = ensureAccount(state, suggested.name, suggested.type, balanceOf(remote));
+      state.bankSync.accountMappings[remote.id] = accountId;
+    }
+    state.bankSync.enableBanking.accounts = remoteAccounts;
+
+    status.textContent = `Henter posteringer ${dateFrom} → ${dateTo}…`;
+    const sync = await api(`/api/enablebanking/sync?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
+
+    let imported = 0;
+    let skipped = 0;
+    let updatedDuplicates = 0;
+    for (const remote of sync.transactions || []) {
+      const accountId = state.bankSync.accountMappings[remote.externalAccountId] || ensureAccount(state, remote.accountName || "Enable Banking konto");
+      const tx = {
+        id: `tx_${remote.id || uid("eb")}`,
+        accountId,
+        date: remote.date,
+        description: remote.description || "Enable Banking postering",
+        amount: Number(remote.amount || 0),
+        categoryId: matchCategory(state, remote),
+        note: remote.status && !["BOOK", "booked"].includes(String(remote.status)) ? String(remote.status) : "",
+        relationType: remote.relationType || "",
+        relationKey: remote.relationKey || remote.counterpartyName || remote.openBanking?.counterpartyName || "",
+        linkedTransactionId: "",
+        matchGroupId: "",
+        source: "enablebanking",
+        externalId: remote.externalId,
+        externalAccountId: remote.externalAccountId,
+        merchantCategoryCode: remote.merchantCategoryCode || remote.openBanking?.merchantCategoryCode || "",
+        bankTransactionCode: remote.bankTransactionCode || remote.openBanking?.bankTransactionCode || "",
+        counterpartyName: remote.counterpartyName || remote.openBanking?.counterpartyName || "",
+        counterpartyAccount: remote.counterpartyAccount || remote.openBanking?.counterpartyAccount || "",
+        openBanking: remote.openBanking || {},
+        importedAt: sync.syncedAt || new Date().toISOString(),
+      };
+      const dup = likelyDuplicate(state, tx);
+      if (dup) {
+        backfillOpenBankingMetadata(dup, remote);
+        dup.externalId ||= tx.externalId;
+        dup.externalAccountId ||= tx.externalAccountId;
+        if (dup.source === "csv") dup.source = "csv+enablebanking";
+        dup.updatedAt = new Date().toISOString();
+        skipped += 1;
+        updatedDuplicates += 1;
+        continue;
+      }
+      state.transactions.unshift(tx);
+      imported += 1;
+    }
+
+    state.bankSync.enableBanking.lastSyncAt = sync.syncedAt || new Date().toISOString();
+    state.bankSync.enableBanking.lastImportCount = imported;
+    state.bankSync.enableBanking.lastDateFrom = dateFrom;
+    state.bankSync.enableBanking.lastDateTo = dateTo;
+    state.settings.selectedMonth = dateTo.slice(0, 7);
+    state.settings.serverSavedAt = new Date().toISOString();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    await fetch('/api/app-state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
+    new BroadcastChannel("privatoekonomi-state").postMessage({ type: "state-updated", message: "Bankdata er importeret i en anden fane.", at: new Date().toISOString() });
+
+    status.textContent = `Færdig ✅\nData er nu gemt i DENNE browsers lokale app-data.\n\nKonti: ${remoteAccounts.length}\nNye posteringer: ${imported}\nDubletter/eksisterende opdateret: ${skipped}\nKonto-fejl: ${(sync.errors || []).length}\n\nKlik “Åbn overblik” eller “Åbn oprydning” herunder.`;
+    const actions = document.querySelector('main p:last-child');
+    actions.insertAdjacentHTML('beforeend', `<a href="/?fresh=${Date.now()}#oprydning">Åbn oprydning</a><a class="ghost" href="/?fresh=${Date.now()}#transaktioner">Åbn transaktioner</a>`);
+    if (!new URLSearchParams(location.search).has("stay")) setTimeout(() => location.replace(`/?fresh=${Date.now()}#oprydning`), 3500);
+  } catch (error) {
+    console.error(error);
+    status.className = "status error";
+    status.textContent = `Fejl: ${error.message}`;
+  }
+}
+
+document.getElementById("run").addEventListener("click", run);
+run();
+</script>
+</body>
+</html>

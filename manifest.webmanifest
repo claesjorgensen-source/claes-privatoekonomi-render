@@ -1,0 +1,18 @@
+{
+  "name": "Claes' privatøkonomi",
+  "short_name": "Privatøkonomi",
+  "description": "Frederiksberg-grønt overblik og indsigt i Claes' privatøkonomi.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f3f6ef",
+  "theme_color": "#00573f",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

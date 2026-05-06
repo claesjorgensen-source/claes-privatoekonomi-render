@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fjern overlap · Claes' privatøkonomi</title>
+  <style>
+    body { margin:0; min-height:100vh; display:grid; place-items:center; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#f3f6ef; color:#10231d; }
+    main { max-width:860px; width:calc(100% - 40px); padding:32px; border:1px solid rgba(16,35,29,.13); border-radius:28px; background:rgba(255,250,241,.92); box-shadow:0 22px 70px rgba(25,29,27,.08); }
+    h1 { margin:0 0 12px; font-size:clamp(2rem,6vw,4rem); line-height:.95; letter-spacing:-.06em; }
+    p, li { color:#64746c; line-height:1.55; }
+    .box { margin-top:18px; padding:14px 16px; border-radius:16px; background:rgba(0,122,83,.08); color:#00573f; font-weight:800; white-space:pre-wrap; }
+    .error { background:rgba(169,71,58,.08); color:#a9473a; }
+    a, button { display:inline-flex; margin:8px 8px 0 0; color:#fffaf1; background:#00573f; border:0; border-radius:999px; padding:11px 16px; font-weight:800; text-decoration:none; cursor:pointer; }
+    .ghost { background:transparent; color:#00573f; border:1px solid rgba(16,35,29,.16); }
+    table { width:100%; border-collapse:collapse; margin-top:18px; font-size:.9rem; }
+    td, th { padding:8px; border-bottom:1px solid rgba(16,35,29,.12); text-align:left; vertical-align:top; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Fjerner overlap automatisk</h1>
+    <p>Jeg beholder Enable Banking-posten og fjerner CSV/ældre overlap på samme konto, dato og beløb. Hvis to poster er identiske fra samme kilde, beholdes den bedste.</p>
+    <div id="status" class="box">Starter…</div>
+    <p>
+      <button id="run" type="button">Kør igen</button>
+      <a class="ghost" href="/localdata-status.html">Se data-status</a>
+      <a class="ghost" href="/?fresh=1#oprydning">Åbn oprydning</a>
+      <a class="ghost" href="/?fresh=1#transaktioner">Åbn transaktioner</a>
+    </p>
+    <div id="preview"></div>
+  </main>
+<script>
+const STORAGE_KEY = 'finansblik:v1';
+function normalize(value){ return String(value||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/æ/g,'ae').replace(/ø/g,'oe').replace(/å/g,'aa').replace(/[^a-z0-9]+/g,' ').trim(); }
+function words(value){ return new Set(normalize(value).split(/\s+/).filter(w => w.length >= 3 && !/^\d+$/.test(w))); }
+function similarity(a,b){ const A=words(a), B=words(b); if(!A.size || !B.size) return 0; let n=0; for(const w of A) if(B.has(w)) n++; return n/Math.max(A.size,B.size); }
+function dayNum(date){ return Math.floor(new Date(`${date}T00:00:00`).getTime()/86400000); }
+function daysBetween(a,b){ return Math.abs(dayNum(a)-dayNum(b)); }
+function amountKey(amount){ return Number(amount||0).toFixed(2); }
+function sourceScore(tx){ const s=String(tx.source||''); if(s.includes('enablebanking')) return 100; if(s.includes('gocardless')) return 90; if(s.includes('csv+')) return 80; if(s.includes('csv')) return 50; return 40; }
+function completeness(tx){ return sourceScore(tx) + (tx.externalId?8:0) + (tx.externalAccountId?4:0) + Math.min(20, String(tx.description||'').length/8) + (tx.categoryId && tx.categoryId!=='cat-other'?4:0) + (tx.note?2:0); }
+function accountName(state, id){ return state.accounts?.find(a=>a.id===id)?.name || id || 'Ukendt'; }
+function isOverlap(a,b){
+  if(a.id===b.id) return false;
+  if(a.accountId !== b.accountId) return false;
+  if(Math.abs(Number(a.amount||0)-Number(b.amount||0))>0.01) return false;
+  if(daysBetween(a.date,b.date)>1) return false;
+  if(a.externalId && b.externalId && a.externalId===b.externalId) return true;
+  const sa=String(a.source||''), sb=String(b.source||'');
+  const crossBankCsv=(sa.includes('enablebanking') && sb.includes('csv')) || (sb.includes('enablebanking') && sa.includes('csv')) || (sa.includes('gocardless') && sb.includes('csv')) || (sb.includes('gocardless') && sa.includes('csv'));
+  const sim=similarity(a.description,b.description);
+  if(crossBankCsv && daysBetween(a.date,b.date)===0) return true; // bank+CSV på samme konto/dato/beløb er næsten altid samme postering
+  if(crossBankCsv && sim>=0.12) return true;
+  if(normalize(a.description)===normalize(b.description)) return true;
+  if(sim>=0.55) return true;
+  return false;
+}
+function buildGroups(txs){
+  const buckets=new Map();
+  for(const tx of txs){
+    const key=[tx.accountId, amountKey(tx.amount), tx.date].join('|');
+    if(!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(tx);
+    // også dagen før/efter til bogføringsforskelle
+    for(const delta of [-1,1]){
+      const d=new Date(`${tx.date}T00:00:00`); d.setDate(d.getDate()+delta);
+      const k=[tx.accountId, amountKey(tx.amount), d.toISOString().slice(0,10)].join('|');
+      if(!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(tx);
+    }
+  }
+  const seenPairs=new Set(), graph=new Map();
+  for(const bucket of buckets.values()){
+    const unique=[...new Map(bucket.map(tx=>[tx.id,tx])).values()];
+    if(unique.length<2) continue;
+    for(let i=0;i<unique.length;i++) for(let j=i+1;j<unique.length;j++){
+      const a=unique[i], b=unique[j];
+      const pair=[a.id,b.id].sort().join('|');
+      if(seenPairs.has(pair)) continue; seenPairs.add(pair);
+      if(!isOverlap(a,b)) continue;
+      if(!graph.has(a.id)) graph.set(a.id,new Set());
+      if(!graph.has(b.id)) graph.set(b.id,new Set());
+      graph.get(a.id).add(b.id); graph.get(b.id).add(a.id);
+    }
+  }
+  const byId=new Map(txs.map(tx=>[tx.id,tx]));
+  const visited=new Set(), groups=[];
+  for(const id of graph.keys()){
+    if(visited.has(id)) continue;
+    const stack=[id], ids=[]; visited.add(id);
+    while(stack.length){ const cur=stack.pop(); ids.push(cur); for(const next of graph.get(cur)||[]) if(!visited.has(next)){visited.add(next); stack.push(next);} }
+    if(ids.length>1) groups.push(ids.map(id=>byId.get(id)).filter(Boolean));
+  }
+  return groups;
+}
+function run(){
+  const status=document.getElementById('status'), preview=document.getElementById('preview');
+  status.className='box'; preview.innerHTML='';
+  try{
+    const raw=localStorage.getItem(STORAGE_KEY);
+    if(!raw){ status.className='box error'; status.textContent='Ingen app-data fundet i denne browser.'; return; }
+    const state=JSON.parse(raw);
+    const txs=state.transactions||[];
+    const before=txs.length;
+    const groups=buildGroups(txs);
+    const removeIds=new Set(), examples=[];
+    for(const group of groups){
+      const sorted=group.slice().sort((a,b)=>completeness(b)-completeness(a));
+      const keep=sorted[0];
+      for(const tx of sorted.slice(1)){
+        removeIds.add(tx.id);
+        keep.externalId ||= tx.externalId;
+        keep.externalAccountId ||= tx.externalAccountId;
+        if(String(keep.source||'').includes('enablebanking') && String(tx.source||'').includes('csv')) keep.source='enablebanking';
+        else if(String(tx.source||'').includes('enablebanking') && !String(keep.source||'').includes('enablebanking')) keep.source='enablebanking';
+        keep.updatedAt=new Date().toISOString();
+        if(examples.length<30) examples.push({keep, remove:tx});
+      }
+    }
+    state.transactions=txs.filter(tx=>!removeIds.has(tx.id));
+    state.settings ||= {};
+    state.settings.serverSavedAt = new Date().toISOString();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    fetch('/api/app-state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) }).catch(() => {});
+    new BroadcastChannel('privatoekonomi-state').postMessage({ type: 'state-updated', message: 'Overlap er fjernet i en anden fane.', at: new Date().toISOString() });
+    status.textContent=`Færdig ✅\nPosteringer før: ${before}\nOverlap fjernet: ${removeIds.size}\nPosteringer efter: ${state.transactions.length}\n\nJeg har beholdt den bedste/bank-sync posten og fjernet overlap.`;
+    preview.innerHTML=examples.length?`<table><thead><tr><th>Beholdt</th><th>Fjernet</th></tr></thead><tbody>${examples.map(e=>`<tr><td>${e.keep.date} · ${accountName(state,e.keep.accountId)}<br><strong>${Number(e.keep.amount).toLocaleString('da-DK')} kr.</strong> · ${e.keep.description}<br><small>${e.keep.source||''}</small></td><td>${e.remove.date} · ${accountName(state,e.remove.accountId)}<br><strong>${Number(e.remove.amount).toLocaleString('da-DK')} kr.</strong> · ${e.remove.description}<br><small>${e.remove.source||''}</small></td></tr>`).join('')}</tbody></table>`:'<p>Ingen overlap fundet.</p>';
+  }catch(error){ console.error(error); status.className='box error'; status.textContent='Fejl: '+error.message; }
+}
+document.getElementById('run').addEventListener('click', run);
+run();
+</script>
+</body>
+</html>

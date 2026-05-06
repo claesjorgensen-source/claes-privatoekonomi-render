@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verificér live bank-sync · Claes' privatøkonomi</title>
+  <style>
+    body { margin:0; min-height:100vh; display:grid; place-items:center; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#f3f6ef; color:#10231d; }
+    main { max-width:940px; width:calc(100% - 40px); padding:32px; border:1px solid rgba(16,35,29,.13); border-radius:28px; background:rgba(255,250,241,.94); box-shadow:0 22px 70px rgba(25,29,27,.08); }
+    h1 { margin:0 0 12px; font-size:clamp(2rem,6vw,4rem); line-height:.95; letter-spacing:-.06em; }
+    p, li { color:#64746c; line-height:1.55; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:18px; }
+    .box { padding:16px; border-radius:18px; background:rgba(0,122,83,.08); color:#00573f; white-space:pre-wrap; }
+    .box strong { display:block; color:#10231d; font-size:1.05rem; margin-bottom:8px; }
+    .warn { background:rgba(180,122,42,.12); color:#8a5a1d; }
+    .error { background:rgba(169,71,58,.08); color:#a9473a; }
+    a, button { display:inline-flex; margin:8px 8px 0 0; color:#fffaf1; background:#00573f; border:0; border-radius:999px; padding:11px 16px; font-weight:800; text-decoration:none; cursor:pointer; }
+    .ghost { background:transparent; color:#00573f; border:1px solid rgba(16,35,29,.16); }
+    table { width:100%; border-collapse:collapse; margin-top:18px; font-size:.9rem; }
+    td, th { padding:8px; border-bottom:1px solid rgba(16,35,29,.12); text-align:left; vertical-align:top; }
+    @media (max-width:800px){ .grid{ grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Verificerer live bank-sync</h1>
+    <p>Denne side sammenligner <strong>Enable Banking API’et på serveren</strong> med det, der faktisk er gemt i <strong>denne browsers app-data</strong>.</p>
+    <div class="grid">
+      <div id="api" class="box"><strong>Live API</strong>Tester…</div>
+      <div id="local" class="box"><strong>Denne browser/app</strong>Læser localStorage…</div>
+    </div>
+    <p>
+      <button id="run" type="button">Tjek igen</button>
+      <a href="/pull-enablebanking.html?from=2026-04-01&stay=1">Importér fra live API til denne browser</a>
+      <a class="ghost" href="/dedupe-overlap.html">Fjern overlap</a>
+      <a class="ghost" href="/?fresh=1#transaktioner">Åbn transaktioner</a>
+    </p>
+    <div id="examples"></div>
+  </main>
+<script>
+const STORAGE_KEY = 'finansblik:v1';
+function money(n){ return new Intl.NumberFormat('da-DK',{style:'currency',currency:'DKK'}).format(Number(n||0)); }
+async function getJson(path){ const r=await fetch(path,{headers:{Accept:'application/json'}}); const t=await r.text(); const j=t?JSON.parse(t):null; if(!r.ok) throw new Error(j?.message||j?.error||`API-fejl ${r.status}`); return j; }
+function localSummary(){
+  const raw=localStorage.getItem(STORAGE_KEY);
+  if(!raw) return { ok:false, text:'Ingen localStorage-data for appen i denne browser.' };
+  const s=JSON.parse(raw);
+  const tx=s.transactions||[];
+  const eb=tx.filter(t=>String(t.source||'').includes('enablebanking'));
+  const accounts=s.accounts||[];
+  const latest=tx.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).slice(0,12);
+  return { ok:true, state:s, tx, eb, accounts, latest, text:`Konti i appen: ${accounts.length}\nPosteringer i appen: ${tx.length}\nEnable Banking-posteringer: ${eb.length}\nSeneste EB-sync: ${s.bankSync?.enableBanking?.lastSyncAt||'ikke registreret'}\nValgt måned: ${s.settings?.selectedMonth||'ukendt'}` };
+}
+async function run(){
+  const apiEl=document.getElementById('api'), localEl=document.getElementById('local'), examples=document.getElementById('examples');
+  apiEl.className='box'; localEl.className='box'; examples.innerHTML='';
+  apiEl.innerHTML='<strong>Live API</strong>Henter config/konti…';
+  try{
+    const cfg=await getJson('/api/enablebanking/config');
+    const acc=await getJson('/api/enablebanking/accounts');
+    apiEl.innerHTML=`<strong>Live API</strong>Konfigureret: ${cfg.configured?'ja':'nej'}\nSession: ${cfg.hasSession?'ja':'nej'}\nAPI-konti: ${(acc.accounts||[]).length}\n\nHenter transaktionstælling…`;
+    const sync=await getJson('/api/enablebanking/sync?date_from=2026-04-01&date_to=2026-05-04');
+    apiEl.innerHTML=`<strong>Live API</strong>Konfigureret: ${cfg.configured?'ja':'nej'}\nSession: ${cfg.hasSession?'ja':'nej'}\nAPI-konti: ${(acc.accounts||[]).length}\nAPI-posteringer 1/4→4/5: ${(sync.transactions||[]).length}\nAPI-fejl: ${(sync.errors||[]).length}`;
+    const local=localSummary();
+    localEl.className=local.ok && local.eb?.length ? 'box' : 'box warn';
+    localEl.innerHTML=`<strong>Denne browser/app</strong>${local.text}`;
+    if(local.ok){
+      examples.innerHTML=`<table><thead><tr><th>Seneste lokale poster</th><th>Beløb</th><th>Kilde</th></tr></thead><tbody>${local.latest.map(t=>`<tr><td>${t.date||''} · ${String(t.description||'').slice(0,110)}</td><td>${money(t.amount)}</td><td>${t.source||''}</td></tr>`).join('')}</tbody></table>`;
+    }
+  }catch(e){
+    apiEl.className='box error';
+    apiEl.innerHTML=`<strong>Live API</strong>Fejl: ${e.message}`;
+    const local=localSummary();
+    localEl.className=local.ok?'box':'box warn';
+    localEl.innerHTML=`<strong>Denne browser/app</strong>${local.text}`;
+  }
+}
+document.getElementById('run').addEventListener('click',run);
+run();
+</script>
+</body>
+</html>

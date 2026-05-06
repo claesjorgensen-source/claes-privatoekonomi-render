@@ -1,0 +1,7225 @@
+const STORAGE_KEY = "finansblik:v1";
+const BRAND_NAME = "Claes' privatøkonomi";
+const BRAND_TAGLINE = "Overblik og indsigt i privatøkonomien";
+
+const NAV_ITEMS = [
+  { id: "overblik", label: "Overblik", hint: "" },
+  { id: "formue", label: "Formue", hint: "" },
+  { id: "rapporter", label: "Analyser", hint: "" },
+  { id: "oprydning", label: "Ryd op", hint: "" },
+  { id: "transaktioner", label: "Posteringer", hint: "" },
+  { id: "bank-sync", label: "Bankdata", hint: "" },
+  { id: "indstillinger", label: "Backup", hint: "" },
+];
+
+const DEFAULT_WEALTH_PROPERTIES = [
+  { id: "apartment", name: "Lejlighed", subtitle: "Bolig", estimatedValue: 0, debt: 0 },
+  { id: "summerhouse", name: "Sommerhus", subtitle: "", estimatedValue: 0, debt: 0 },
+];
+
+const DEFAULT_WEALTH_PENSION = { provider: "PFA", value: 0 };
+
+const RELATION_TYPES = [
+  { id: "", label: "Ingen relation" },
+  { id: "udlæg", label: "Udlæg / refusion" },
+  { id: "intern", label: "Intern overførsel" },
+  { id: "opsparing", label: "Opsparing" },
+  { id: "investering", label: "Investering" },
+  { id: "fælles", label: "Fælles udgift" },
+  { id: "andet", label: "Anden sammenhæng" },
+];
+
+const SIMPLIFIED_CATEGORIES = [
+  { id: "cat-salary", name: "Indkomst", kind: "income", color: "#1f7a4d" },
+  { id: "cat-groceries", name: "Husholdning", kind: "expense", color: "#b9752f" },
+  { id: "cat-housing", name: "Bolig & regninger", kind: "expense", color: "#245f56" },
+  { id: "cat-summerhouse", name: "Sommerhus", kind: "expense", color: "#2f7b7a" },
+  { id: "cat-transport", name: "Transport", kind: "expense", color: "#5069a8" },
+  { id: "cat-family", name: "Familie", kind: "expense", color: "#b4617b" },
+  { id: "cat-lifestyle", name: "Fritid & mad ude", kind: "expense", color: "#c48b40" },
+  { id: "cat-shopping", name: "Diverse forbrug", kind: "expense", color: "#8c6f39" },
+  { id: "cat-health", name: "Sundhed", kind: "expense", color: "#8f5e55" },
+  { id: "cat-transfer", name: "Intern overførsel", kind: "transfer", color: "#6f746c" },
+  { id: "cat-savings", name: "Opsparing/investering", kind: "transfer", color: "#00573f" },
+  { id: "cat-reimburse", name: "Udlæg/refusion", kind: "transfer", color: "#71806a" },
+  { id: "cat-other", name: "Ukendt", kind: "expense", color: "#8a8d84" },
+];
+
+const CATEGORY_MERGE_MAP = {
+  "cat-insurance": "cat-housing",
+  "cat-subscriptions": "cat-housing",
+  "cat-fees": "cat-housing",
+  "cat-foodout": "cat-lifestyle",
+  "cat-travel": "cat-lifestyle",
+  "cat-investment": "cat-savings",
+  "cat-vacation-home": "cat-summerhouse",
+  "cat-summer-house": "cat-summerhouse",
+};
+
+const MCC_CATEGORY_RULES = [
+  { categoryId: "cat-groceries", codes: ["5411", "5422", "5441", "5451", "5462", "5499"] },
+  { categoryId: "cat-lifestyle", ranges: [[5811, 5814], [7011, 7033], [7832, 7999]] },
+  { categoryId: "cat-transport", codes: ["4111", "4112", "4121", "4131", "4789", "5541", "5542", "7523"] },
+  { categoryId: "cat-housing", codes: ["4812", "4814", "4816", "4821", "4899", "4900", "6300", "6513"] },
+  { categoryId: "cat-health", ranges: [[5912, 5912], [8011, 8099]] },
+  { categoryId: "cat-family", codes: ["5945", "8211", "8220", "8241", "8244", "8249", "8299", "8351"] },
+  { categoryId: "cat-shopping", ranges: [[5200, 5399], [5600, 5735], [5940, 5999]] },
+];
+
+const INTELLIGENT_CATEGORY_RULES = [
+  { pattern: /(løn|loen|salary|gage|honorar|udbetaling fra arbejdsgiver)/, categoryId: "cat-salary", reason: "Teksten ligner indkomst.", confidence: 96 },
+  { pattern: /(totalkredit|realkredit)/, categoryId: "cat-housing", reason: "Ligner realkredit/bolig og fordeles over tre måneder.", confidence: 90 },
+  { pattern: /(til faelles|til fælles|fælles forbrugskonto|faelles forbrugskonto|fælles budget|faelles budget|til sommerhuskonto|sommerhuskonto|til dankonto|egen konto|mellem konti|kontooverforsel|kontooverførsel|(^|\s)forbrug(\s|$)|forbrug på mastercard)/, categoryId: "cat-transfer", relationType: "intern", reason: "Ligner intern kontooverførsel.", confidence: 92 },
+  { pattern: /(bank norwegian|overfort til lan|overført til lån|laan|lån forfaldsdato|afdrag|kreditkort|forbrugskredit)/, categoryId: "cat-transfer", relationType: "intern", reason: "Ligner betaling til lån/kredit eller intern gældsflytning.", confidence: 82 },
+  { pattern: /(pluto|aktier|saxo|nordnet|depot|invester|investering|etf|fond|pension)/, categoryId: "cat-savings", relationType: "investering", reason: "Ligner investering eller formueflytning.", confidence: 95 },
+  { pattern: /(opsparing|sparekonto|overfort til indlan|overført til indlån|automatisk saldoflytning|depotkonto)/, categoryId: "cat-savings", relationType: "opsparing", reason: "Ligner opsparing eller flytning mellem egne konti.", confidence: 94 },
+  { pattern: /(mobilepay|udlæg|udlaeg|refusion|tilbagebetaling|tilbagebetalt|skylder|vipps)/, categoryId: "cat-reimburse", relationType: "udlæg", reason: "Ligner udlæg, MobilePay eller refusion.", confidence: 88 },
+  { pattern: /(netto|rema|foetex|føtex|meny|superbrugsen|brugsen|coop|365 |lundtoftegade|skagenfood|odden fisk|kiosken paa odden|kiosken på odden|dagli.?brugsen|irama|lidl|aldi|bilka|nemlig|aarstiderne|fødevarer|fodevarer)/, categoryId: "cat-groceries", reason: "Ligner dagligvarer eller husholdning.", confidence: 92 },
+  { pattern: /(wolt|uber \*eats|uber eats|mealo|restaurant|bistro|cafe|café|pastis|donda|fojetta|polly|silberbauer|fresto|havnebyens kaffebar|20 grams|kaffe|takeaway|bar |vin |bichel|kjær & sommerfeldt|sommerfeldt|lille fugl|spotify|netflix|youtube|google \*youtube|apple\.com\/bill|itunes)/, categoryId: "cat-lifestyle", reason: "Ligner restaurant, abonnement eller fritid.", confidence: 86 },
+  { pattern: /(dsb|rejsekort|molslinjen|easypark|parkering|ok |circle k|shell|q8|bilsyn|city bilsyn|taxa|taxi|uber trip|transport|brobizz|ferry|færge|faerge)/, categoryId: "cat-transport", reason: "Ligner transport, parkering, brændstof eller færge.", confidence: 88 },
+  { pattern: /(vuggestue|institution|skole|børnehave|bornehave|hemmingsenkids|kids|legetøj|legetoj|faraos|karla)/, categoryId: "cat-family", reason: "Ligner familie, børn eller institution.", confidence: 84 },
+  { pattern: /(matas|apotek|læge|laege|tandlæge|tandlaege|sundhed|sportinghealthclub|health club|fitness|medicin)/, categoryId: "cat-health", reason: "Ligner sundhed, apotek eller træning.", confidence: 86 },
+  { pattern: /(uniqlo|magasin|normal studios|paloma wool|boss store|danskshop|boxnow|matas\.dk|blizzard|tipster|inmotion|ezanza|lavprisel|shop|webshop|notanr|pas normal|tøj|toej|clothing|design|interiør|interior|bygma)/, categoryId: "cat-shopping", reason: "Ligner køb, shopping eller diverse forbrug.", confidence: 70 },
+  { pattern: /(husleje|bolig|brf|ejerforening|vandværk|vandvaerk|kommune|norlys|energi|el |gas|varme|forsikring|letsikring|præmiebetaling|praemiebetaling|realkredit|grundskyld|ejendomsskat|adm\.service fyn)/, categoryId: "cat-housing", reason: "Ligner bolig, regning, forsikring eller kommune.", confidence: 86 },
+  { pattern: /(odsherred forsyning|odsherred kommune|sommerhus|sommerhuskonto|brf)/, categoryId: "cat-summerhouse", reason: "Ligner sommerhusrelateret bolig-/ejendomsudgift.", confidence: 84 },
+];
+
+const SIMPLIFIED_RULES = [
+  ["løn", "cat-salary"],
+  ["netto", "cat-groceries"],
+  ["rema", "cat-groceries"],
+  ["føtex", "cat-groceries"],
+  ["coop", "cat-groceries"],
+  ["meny", "cat-groceries"],
+  ["husleje", "cat-housing"],
+  ["bolig", "cat-housing"],
+  ["sommerhus", "cat-summerhouse"],
+  ["odsherred", "cat-summerhouse"],
+  ["norlys", "cat-housing"],
+  ["forsikring", "cat-housing"],
+  ["dsb", "cat-transport"],
+  ["ok", "cat-transport"],
+  ["vuggestue", "cat-family"],
+  ["institution", "cat-family"],
+  ["restaurant", "cat-lifestyle"],
+  ["cafe", "cat-lifestyle"],
+  ["bistro", "cat-lifestyle"],
+  ["spotify", "cat-lifestyle"],
+  ["netflix", "cat-lifestyle"],
+  ["mobilepay", "cat-reimburse"],
+  ["overførsel", "cat-transfer"],
+  ["overforsel", "cat-transfer"],
+  ["opsparing", "cat-savings"],
+  ["saxo", "cat-savings"],
+  ["nordnet", "cat-savings"],
+  ["depot", "cat-savings"],
+].map(([keyword, categoryId], index) => ({ id: `rule-simple-${index}`, keyword, categoryId }));
+
+const VIEW_COPY = {
+  overblik: {
+    kicker: "Privatøkonomi",
+    title: "Overblik",
+    lead: "Forbrug, udvikling og oprydning — samlet på én side.",
+  },
+  formue: {
+    kicker: "Formue",
+    title: "Formue",
+    lead: "Kontanter, bolig, aktier og crypto — samlet uden støj.",
+  },
+  rapporter: {
+    kicker: "Analyser",
+    title: "Analyser",
+    lead: "Færdige rapporter om forbrug, udvikling og mønstre.",
+  },
+  udgifter: {
+    kicker: "Udgifter",
+    title: "Udgifter",
+    lead: "Største kategorier og dyreste posteringer.",
+  },
+  oprydning: {
+    kicker: "Oprydning",
+    title: "Ryd op",
+    lead: "Fjern overlap, afstem overførsler og hold forbrugstallene rene.",
+  },
+  transaktioner: {
+    kicker: "Posteringer",
+    title: "Posteringer",
+    lead: "Søg, ret og kategorisér bankposteringer.",
+  },
+  "bank-sync": {
+    kicker: "Bankdata",
+    title: "Bankdata",
+    lead: "Hent konti og posteringer fra Enable Banking eller CSV.",
+  },
+  import: {
+    kicker: "CSV",
+    title: "CSV-import",
+    lead: "Importer kontoudtog fra Sparekassen Kronjylland.",
+  },
+  konti: {
+    kicker: "Konti",
+    title: "Konti",
+    lead: "Saldi og kontomapping.",
+  },
+  kategorier: {
+    kicker: "Kategorier",
+    title: "Kategorier",
+    lead: "Få brede kategorier og simple regler.",
+  },
+  indstillinger: {
+    kicker: "Backup",
+    title: "Backup",
+    lead: "Eksportér, gendan og vedligehold lokale data.",
+  },
+};
+
+const app = document.querySelector("#app");
+let state = loadState();
+let noticeTimer = null;
+let enableBankingHydrated = false;
+let autoSyncStarted = false;
+let stateBroadcastChannel = null;
+let serverSaveTimer = null;
+let hydratingServerState = false;
+let serverStateHydrated = false;
+let lastPersistedStateFingerprint = "";
+let runtimeStatus = { ok: false, dataBackend: "local", authEnabled: false };
+let ui = {
+  view: "overblik",
+  month: state.settings.selectedMonth || currentMonthKey(),
+  query: "",
+  categoryFilter: "all",
+  accountFilter: "all",
+  reportMode: "overblik",
+  reportAccountFilter: "all",
+  periodMode: state.settings.periodMode || "month",
+  periodFrom: state.settings.periodFrom || uiMonthStart(state.settings.selectedMonth || currentMonthKey()),
+  periodTo: state.settings.periodTo || uiMonthEnd(state.settings.selectedMonth || currentMonthKey()),
+  dateBasis: state.settings.dateBasis || "economic",
+  privacyMode: Boolean(state.settings.privacyMode),
+  drawer: null,
+  drawerTxId: null,
+  editingId: null,
+  importAccountId: state.accounts[0]?.id || "",
+  importOnlyMonth: true,
+  importMonth: shiftMonth(currentMonthKey(), -1),
+  syncDateFrom: `${uiMonthStart(state.settings.selectedMonth || currentMonthKey())}`,
+  syncDateTo: todayISO(),
+  importDraft: null,
+  notice: null,
+  transactionsPage: 1,
+  transactionsPageSize: 75,
+  undo: null,
+};
+
+init();
+
+function init() {
+  app.addEventListener("click", handleClick);
+  app.addEventListener("submit", handleSubmit);
+  app.addEventListener("change", handleChange);
+  app.addEventListener("input", handleInput);
+  setupLiveStateBridge();
+  const params = new URLSearchParams(window.location.search);
+  const returnedFromEnableBanking = params.get("enablebanking") === "connected" || ((params.has("code") || params.has("error")) && params.get("state")?.includes("claes-privatoekonomi-eb"));
+  const returnedFromBank = params.get("bank-sync") === "connected" || params.has("ref") || params.has("ref_id");
+  const hashView = window.location.hash?.replace("#", "");
+  if (NAV_ITEMS.some((item) => item.id === hashView)) ui.view = hashView;
+  if (returnedFromEnableBanking || returnedFromBank) ui.view = "bank-sync";
+  registerServiceWorker();
+  render();
+  window.setTimeout(() => hydrateRuntimeStatus(), 100);
+  if (returnedFromEnableBanking) {
+    const code = params.get("code") || "";
+    const error = params.get("error_description") || params.get("error") || "";
+    window.history.replaceState({}, "", window.location.pathname);
+    window.setTimeout(() => completeEnableBankingSession(code, error), 250);
+  } else if (returnedFromBank) {
+    window.history.replaceState({}, "", window.location.pathname);
+    notify("Bank-samtykke er modtaget. Jeg henter konti fra GoCardless nu.");
+    window.setTimeout(() => refreshGoCardlessAccounts(), 350);
+  } else if (state.bankSync?.autoSyncOnOpen && state.bankSync?.accounts?.length) {
+    window.setTimeout(() => syncGoCardlessTransactions(true), 650);
+  }
+  window.setTimeout(() => hydrateStateFromServer(), 200);
+  window.setTimeout(() => hydrateEnableBankingFromServer(true), 900);
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return createSeedState();
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.version !== 1) return createSeedState();
+    parsed.settings ||= {};
+    parsed.accounts ||= [];
+    parsed.categories ||= [];
+    parsed.rules ||= [];
+    parsed.transactions ||= [];
+    parsed.bankSync ||= { accounts: [], accountMappings: {}, lastSyncAt: "", config: null };
+    parsed.bankSync.enableBanking ||= { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 };
+    parsed.transactions = parsed.transactions
+      .filter((tx) => tx.source !== "demo")
+      .map((tx) => ({ note: "", relationType: "", relationKey: "", linkedTransactionId: "", matchGroupId: "", ...tx, categoryId: simplifyCategoryId(tx.categoryId) }));
+    parsed.accounts = removeUnusedDemoAccounts(parsed.accounts, parsed.transactions);
+    const defaults = createSeedState();
+    parsed.accounts = mergeAccountsByName(parsed.accounts, defaults.accounts);
+    if (!parsed.accounts.length) parsed.accounts = defaults.accounts;
+    parsed.categories = SIMPLIFIED_CATEGORIES.map((category) => ({ ...category }));
+    parsed.rules = mergeRulesByKeyword(parsed.rules, SIMPLIFIED_RULES);
+    parsed.settings.householdName = BRAND_NAME;
+    parsed.settings.members = !parsed.settings.members || parsed.settings.members === "Claes" ? "Claes" : parsed.settings.members;
+    parsed.settings.selectedMonth ||= currentMonthKey();
+    parsed.settings.periodMode ||= "month";
+    parsed.settings.periodFrom ||= uiMonthStart(parsed.settings.selectedMonth);
+    parsed.settings.periodTo ||= uiMonthEnd(parsed.settings.selectedMonth);
+    parsed.settings.dateBasis ||= "economic";
+    parsed.settings.privacyMode = Boolean(parsed.settings.privacyMode);
+    parsed.settings.wealth = normalizeWealthSettings(parsed.settings.wealth);
+    return parsed;
+  } catch (error) {
+    console.warn("Kunne ikke læse gemte data", error);
+    return createSeedState();
+  }
+}
+
+function prepareStateForSave() {
+  state.settings.selectedMonth = ui.month;
+  state.settings.periodMode = ui.periodMode;
+  state.settings.periodFrom = ui.periodFrom;
+  state.settings.periodTo = ui.periodTo;
+  state.settings.dateBasis = ui.dateBasis;
+  state.settings.privacyMode = Boolean(ui.privacyMode);
+}
+
+function stateFingerprint(value = state) {
+  return JSON.stringify(value, (key, item) => key === "serverSavedAt" ? undefined : item);
+}
+
+function markServerStateFingerprint(value = state) {
+  lastPersistedStateFingerprint = stateFingerprint(value);
+}
+
+function saveState() {
+  prepareStateForSave();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  persistStateToServer();
+  broadcastStateUpdate("Data er opdateret.");
+}
+
+function saveStateQuietly() {
+  prepareStateForSave();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  persistStateToServer();
+}
+
+function setupLiveStateBridge() {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== STORAGE_KEY || !event.newValue) return;
+    applyExternalStateUpdate("Data blev opdateret i en anden fane.");
+  });
+  if ("BroadcastChannel" in window) {
+    stateBroadcastChannel = new BroadcastChannel("privatoekonomi-state");
+    stateBroadcastChannel.addEventListener("message", (event) => {
+      if (event.data?.type !== "state-updated") return;
+      applyExternalStateUpdate(event.data.message || "Data blev opdateret.");
+    });
+  }
+}
+
+function broadcastStateUpdate(message) {
+  stateBroadcastChannel?.postMessage({ type: "state-updated", message, at: new Date().toISOString() });
+}
+
+async function hydrateStateFromServer() {
+  if (hydratingServerState) return;
+  hydratingServerState = true;
+  try {
+    const data = await apiFetch("/api/app-state");
+    const serverState = data?.state;
+    if (!serverState?.transactions?.length) return;
+    const localCount = state.transactions?.length || 0;
+    const serverCount = serverState.transactions?.length || 0;
+    const localSaved = new Date(state.settings?.serverSavedAt || state.bankSync?.enableBanking?.lastSyncAt || 0).getTime();
+    const serverSaved = new Date(data.savedAt || serverState.settings?.serverSavedAt || 0).getTime();
+    if (serverCount < localCount && serverSaved <= localSaved) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(serverState));
+    const keepView = ui.view;
+    state = loadState();
+    ui.view = keepView;
+    hydratePeriodUiFromState();
+    markServerStateFingerprint(state);
+    render();
+    notify(`Opdateret med serverdata: ${serverCount} posteringer.`);
+  } catch (error) {
+    console.warn("Kunne ikke hente server-state", error);
+  } finally {
+    hydratingServerState = false;
+    serverStateHydrated = true;
+  }
+}
+
+function persistStateToServer() {
+  clearTimeout(serverSaveTimer);
+  serverSaveTimer = setTimeout(() => {
+    if (!serverStateHydrated) {
+      persistStateToServer();
+      return;
+    }
+    const fingerprint = stateFingerprint(state);
+    if (fingerprint === lastPersistedStateFingerprint) return;
+    fetch("/api/app-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Server-state ${response.status}`)))
+      .then((data) => {
+        if (data?.savedAt) {
+          state.settings.serverSavedAt = data.savedAt;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        }
+        markServerStateFingerprint(state);
+      })
+      .catch((error) => console.warn("Kunne ikke gemme server-state", error));
+  }, 250);
+}
+
+function hydratePeriodUiFromState() {
+  ui.month = state.settings.selectedMonth || latestTransactionMonth() || ui.month || currentMonthKey();
+  ui.periodMode = state.settings.periodMode || "month";
+  ui.periodFrom = state.settings.periodFrom || uiMonthStart(ui.month);
+  ui.periodTo = state.settings.periodTo || uiMonthEnd(ui.month);
+  ui.dateBasis = state.settings.dateBasis || "economic";
+  ui.privacyMode = Boolean(state.settings.privacyMode);
+  if (ui.periodMode === "month") {
+    ui.periodFrom = uiMonthStart(ui.month);
+    ui.periodTo = uiMonthEnd(ui.month);
+  }
+}
+
+function applyExternalStateUpdate(message) {
+  const previousView = ui.view;
+  try {
+    state = loadState();
+    ui.view = previousView;
+    hydratePeriodUiFromState();
+    ui.notice = { text: message, kind: "info" };
+    clearTimeout(noticeTimer);
+    render();
+    noticeTimer = setTimeout(() => {
+      ui.notice = null;
+      render();
+    }, 3200);
+  } catch (error) {
+    console.warn("Kunne ikke indlæse ekstern dataopdatering", error);
+  }
+}
+
+function mergeById(current, defaults) {
+  const ids = new Set(current.map((item) => item.id));
+  return [...current, ...defaults.filter((item) => !ids.has(item.id))];
+}
+
+function simplifyCategoryId(categoryId) {
+  return CATEGORY_MERGE_MAP[categoryId] || categoryId || "cat-other";
+}
+
+function mergeRulesByKeyword(current = [], defaults = []) {
+  const validIds = new Set(SIMPLIFIED_CATEGORIES.map((category) => category.id));
+  const result = [];
+  const seen = new Set();
+  for (const rule of [...defaults, ...current]) {
+    const keyword = String(rule.keyword || "").trim();
+    const categoryId = simplifyCategoryId(rule.categoryId);
+    if (!keyword || !validIds.has(categoryId)) continue;
+    const key = normalize(keyword);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ ...rule, id: rule.id || uid("rule"), keyword, categoryId });
+  }
+  return result;
+}
+
+function mergeAccountsByName(current, defaults) {
+  const names = new Set(current.map((account) => normalize(account.name)));
+  return [...current, ...defaults.filter((account) => !names.has(normalize(account.name)))];
+}
+
+function removeUnusedDemoAccounts(accounts, transactions) {
+  const demoIds = new Set(["acc-main", "acc-shared", "acc-savings"]);
+  const usedAccountIds = new Set(transactions.map((tx) => tx.accountId));
+  return accounts.filter((account) => !demoIds.has(account.id) || usedAccountIds.has(account.id));
+}
+
+function createSeedState() {
+  const month = currentMonthKey();
+  return {
+    version: 1,
+    settings: {
+      householdName: BRAND_NAME,
+      members: "Claes",
+      selectedMonth: shiftMonth(month, -1),
+      createdAt: new Date().toISOString(),
+    },
+    accounts: [
+      { id: "acc-sparekassen", name: "Sparekassen Kronjylland", type: "Bankkonto", balance: 0 },
+      { id: "acc-bolig", name: "Boligkonto", type: "Boligkonto", balance: 0 },
+      { id: "acc-faelles-forbrug", name: "Fælles forbrugskonto", type: "Fælleskonto", balance: 0 },
+      { id: "acc-faelles-sommerhus", name: "Fælles sommerhuskonto", type: "Sommerhus", balance: 0 },
+      { id: "acc-faellesbudget", name: "Fællesbudget konto", type: "Budgetkonto", balance: 0 },
+    ],
+    categories: SIMPLIFIED_CATEGORIES.map((category) => ({ ...category })),
+    rules: SIMPLIFIED_RULES.map((rule) => ({ ...rule })),
+    transactions: [],
+    bankSync: { accounts: [], accountMappings: {}, lastSyncAt: "", config: null, autoSyncOnOpen: false, enableBanking: { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 } },
+  };
+}
+
+function makeTx(accountId, date, description, amount, categoryId) {
+  return {
+    id: uid("tx"),
+    accountId,
+    date,
+    description,
+    amount,
+    categoryId,
+    note: "",
+    relationType: "",
+    relationKey: "",
+    linkedTransactionId: "",
+    matchGroupId: "",
+    source: "demo",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function uid(prefix = "id") {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function render() {
+  const copy = VIEW_COPY[ui.view] || VIEW_COPY.overblik;
+  app.innerHTML = `
+    <div class="app-shell ${ui.privacyMode ? "privacy-mode" : ""}">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">C</div>
+          <div class="brand-text">
+            <strong>${escapeHtml(BRAND_NAME)}</strong>
+            <span>${escapeHtml(BRAND_TAGLINE)}</span>
+          </div>
+        </div>
+        <nav class="nav-list" aria-label="Primær navigation">
+          ${NAV_ITEMS.map(
+            (item) => `
+              <button class="nav-button ${ui.view === item.id ? "active" : ""}" type="button" data-nav="${item.id}">
+                <span>${escapeHtml(item.label)}</span>
+                ${item.hint ? `<small>${escapeHtml(item.hint)}</small>` : ""}
+              </button>`
+          ).join("")}
+        </nav>
+        <button class="sidebar-sync" type="button" data-action="sync-latest">
+          <span>Opdatér bankdata</span>
+          <small>${getBankSyncState().enableBanking?.lastSyncAt ? formatDateTime(getBankSyncState().enableBanking.lastSyncAt) : "Hent fra Open Banking"}</small>
+        </button>
+        <button class="sidebar-mode" type="button" data-action="date-basis" data-basis="${ui.dateBasis === "economic" ? "bank" : "economic"}">
+          <span>${ui.dateBasis === "economic" ? "Økonomisk måned" : "Bankdato"}</span>
+          <small>Skift datovisning</small>
+        </button>
+        <button class="sidebar-mode privacy-toggle ${ui.privacyMode ? "active" : ""}" type="button" data-action="privacy-toggle">
+          <span>${ui.privacyMode ? "Privat visning" : "Vis beløb"}</span>
+          <small>${ui.privacyMode ? "Beløb er skjult" : "Skjul alle tal"}</small>
+        </button>
+        <div class="sidebar-footer">
+          <p class="sidebar-note">Reelt forbrug, bank-sync og oprydning uden støj.</p>
+          <p class="sidebar-meta">${escapeHtml(dataLocationLabel())}</p>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">${escapeHtml(copy.kicker)}</p>
+            <h1>${escapeHtml(copy.title)}</h1>
+            <p class="lead">${escapeHtml(copy.lead)}</p>
+          </div>
+          <div class="actions topbar-actions">
+            ${renderPeriodControl()}
+          </div>
+        </header>
+        ${ui.notice ? `<div class="notice ${ui.notice.kind === "danger" ? "danger" : ""}" role="status">${escapeHtml(ui.notice.text)}</div>` : ""}
+        <div class="view-panel">
+          ${renderView()}
+        </div>
+      </main>
+    </div>
+    ${renderDrawer()}
+  `;
+}
+
+function renderView() {
+  switch (ui.view) {
+    case "formue":
+      return renderWealthView();
+    case "rapporter":
+      return renderReportsView();
+    case "udgifter":
+      return renderExpensesView();
+    case "oprydning":
+      return renderCleanupView();
+    case "transaktioner":
+      return renderTransactionsView();
+    case "bank-sync":
+      return renderBankSyncView();
+    case "import":
+      return renderImportView();
+    case "konti":
+      return renderAccountsView();
+    case "kategorier":
+      return renderCategoriesView();
+    case "indstillinger":
+      return renderSettingsView();
+    case "overblik":
+    default:
+      return renderDashboard();
+  }
+}
+
+function renderDashboard() {
+  const periodRows = getPeriodTransactions();
+  const reportingRows = getPeriodReportingTransactions();
+  const summary = getPeriodSummary();
+  const cleanup = getCleanupStatusForRows(periodRows);
+  const comparison = getPeriodComparison();
+  const recent = periodRows.slice(0, 7);
+  const topCategories = getPeriodCategoryReportRows().slice(0, 5);
+  const label = activePeriodLabel();
+  const liquid = getLiquidAssetsSummary();
+  const cleanupChecklistCount = getCleanupChecklistItems(periodRows).length;
+  const cleanupCount = cleanupChecklistCount;
+  const headline = getPeriodHeadlineInsight(summary, cleanup, topCategories, comparison);
+  const periodization = getPeriodizationSummaryForRows(periodRows);
+  return `
+    <section class="finance-cockpit" aria-label="Finansielt cockpit for ${escapeHtml(label)}">
+      <div class="cockpit-primary">
+        <p class="cockpit-kicker">Dagligt cockpit · ${escapeHtml(label)}</p>
+        <h2>${escapeHtml(headline.title)}</h2>
+        <div class="cockpit-balance ${headline.kind === "negative" ? "negative" : ""}">${escapeHtml(headline.value)}</div>
+        <p class="cockpit-copy">${escapeHtml(headline.text)}</p>
+        <div class="cockpit-status-row">
+          <span class="status-dot ${headline.kind === "negative" ? "negative" : "positive"}">${escapeHtml(headline.badge)}</span>
+          <span>${getBankSyncState().enableBanking?.lastSyncAt ? `Opdateret ${formatDateTime(getBankSyncState().enableBanking.lastSyncAt)}` : "Bankdata ikke opdateret"}</span>
+          <span>${ui.dateBasis === "economic" ? `${periodization.moved} periodiseret fra bankdato` : "Rå bankdato"}</span>
+        </div>
+      </div>
+      <div class="cockpit-grid">
+        ${renderCockpitTile("Cashflow", summary.savings, summary.income ? `${formatPercent(summary.savingsRate)} af indtægt` : "Indtægt mangler", { kind: summary.savings >= 0 ? "positive" : "negative", action: "open-report", report: "overfoersler" })}
+        ${renderCockpitTile("Ind", summary.income, comparison.incomeCountLabel, { kind: "positive", action: "open-report", report: "konti" })}
+        ${renderCockpitTile("Forbrug", summary.expenses, comparison.previous.expenses ? `${comparison.momExpenseDelta >= 0 ? "+" : ""}${formatCurrency(comparison.momExpenseDelta)} mod før` : "Ingen sammenligning", { kind: "expense", action: "open-report", report: "udgifter" })}
+        ${renderCockpitTile("Ryd op", cleanupCount, cleanupCount ? `${cleanupChecklistCount} ting at krydse af` : "Ingen akutte ting", { kind: cleanupCount ? "attention" : "positive", nav: "oprydning" })}
+      </div>
+    </section>
+
+    ${renderExecutiveDashboard(periodRows, reportingRows, topCategories, summary, cleanup, comparison, recent, liquid, label)}
+  `;
+}
+
+function renderExecutiveDashboard(periodRows, reportingRows, topCategories, summary, cleanup, comparison, recent, liquid, label) {
+  return `
+    <section class="exec-dashboard-grid section" aria-label="Dashboard-paneler">
+      <article class="exec-panel exec-panel-wide">
+        <div class="exec-panel-header">
+          <div><span>Performance</span><h2>Retning og pengestrøm</h2><p>Trend, ind/ud og sammenligning i samme panel.</p></div>
+          <button class="button ghost" type="button" data-action="open-report" data-report="udvikling">Åbn trend</button>
+        </div>
+        <div class="exec-performance">
+          <div class="exec-chart">${renderDashboardTrend(ui.month)}</div>
+          <div class="exec-side">
+            ${renderCashflowVisual(summary)}
+            <div class="mini-delta-row compact-deltas">
+              ${renderDeltaPill(ui.periodMode === "month" ? "MoM" : "Forrige periode", comparison.momExpenseDelta, comparison.previous.expenses)}
+              ${renderDeltaPill("YoY", comparison.yoyExpenseDelta, comparison.lastYear.expenses)}
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="exec-panel">
+        <div class="exec-panel-header compact">
+          <div><span>Forbrug</span><h2>Kategorier</h2><p>Klik for drilldown i perioden.</p></div>
+          <button class="button ghost" type="button" data-action="open-report" data-report="udgifter">Dyk ned</button>
+        </div>
+        ${renderCategoryBreakdownCompact(topCategories)}
+      </article>
+
+      <article class="exec-panel">
+        <div class="exec-panel-header compact">
+          <div><span>Fokus</span><h2>Tjek dette først</h2><p>De få ting der gør tallene bedre.</p></div>
+          <button class="button ghost" type="button" data-nav="oprydning">Ryd op</button>
+        </div>
+        ${renderExecutiveActionQueue(periodRows, reportingRows, cleanup)}
+      </article>
+
+      <article class="exec-panel exec-panel-wide">
+        <div class="exec-panel-header">
+          <div><span>Aktivitet</span><h2>Seneste posteringer og konti</h2><p>${recent.length} nyeste i ${escapeHtml(label)} · ${liquid.count} konti.</p></div>
+          <button class="button ghost" type="button" data-nav="transaktioner">Alle posteringer</button>
+        </div>
+        <div class="exec-activity-split">
+          ${renderRecentActivityList(recent.slice(0, 6))}
+          ${renderCompactAccountSnapshot(liquid)}
+        </div>
+      </article>
+    </section>
+  `;
+}
+
+function renderExecutiveActionQueue(periodRows, reportingRows, cleanup) {
+  const periodization = getPeriodizationSummaryForRows(periodRows);
+  const uncertainGroups = getUncertainCategoryGroupsForRows(periodRows).length;
+  const movers = getCategoryMoverRows(reportingRows).slice(0, 2);
+  const items = [
+    { title: "Usikre kategorier", value: uncertainGroups, text: uncertainGroups ? "Validér de største grupper" : "Ser fint ud", nav: "oprydning", tone: uncertainGroups ? "attention" : "positive" },
+    { title: "Månedsskifte", value: periodization.pending, text: periodization.pending ? "Mangler afkrydsning" : (periodization.moved ? "Periodisering aktiv" : "Ingen åbne"), nav: "oprydning", tone: periodization.pending ? "attention" : "positive" },
+    { title: "Konto-match", value: cleanup.transferMatchCount, text: cleanup.transferMatchCount ? "Kan afstemmes" : "Ingen oplagte match", nav: "oprydning", tone: cleanup.transferMatchCount ? "attention" : "positive" },
+    movers[0] ? { title: `Største ændring`, value: `${movers[0].delta >= 0 ? "+" : ""}${formatCurrency(movers[0].delta)}`, text: movers[0].category.name, action: "open-drilldown", drilldown: "category", id: movers[0].category.id, tone: movers[0].delta > 0 ? "negative" : "positive" } : null,
+  ].filter(Boolean);
+  return `
+    <div class="exec-action-list">
+      ${items.map((item) => `
+        <button class="exec-action-row ${item.tone}" type="button" ${item.nav ? `data-nav="${escapeHtml(item.nav)}"` : `data-action="${escapeHtml(item.action)}" data-drilldown="${escapeHtml(item.drilldown)}" data-id="${escapeHtml(item.id)}"`}>
+          <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.text)}</small></span>
+          <em>${escapeHtml(String(item.value))}</em>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCompactAccountSnapshot(liquid) {
+  const accounts = liquid.accounts.slice().sort((a, b) => Number(b.balance || 0) - Number(a.balance || 0)).slice(0, 5);
+  if (!accounts.length) return `<div class="empty-state compact-empty"><strong>Ingen konti</strong><span>Hent bankdata for kontosaldo.</span></div>`;
+  return `
+    <div class="compact-account-snapshot">
+      <div class="snapshot-total"><span>Konti i alt</span><strong>${formatCurrency(liquid.total)}</strong></div>
+      ${accounts.map((account) => `
+        <button class="compact-account-row" type="button" data-action="open-drilldown" data-drilldown="account" data-id="${escapeHtml(account.id)}">
+          <span><strong>${escapeHtml(account.name)}</strong><small>${escapeHtml(account.type)}</small></span>
+          <em>${formatCurrency(Number(account.balance || 0))}</em>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function getPeriodizationSummaryForRows(rows) {
+  const moved = rows.filter((tx) => getEconomicPeriodInfo(tx).moved).length;
+  const locked = rows.filter((tx) => tx.periodLocked).length;
+  const pending = rows.filter((tx) => getEconomicPeriodInfo(tx).moved && !tx.periodLocked).length;
+  return { moved, locked, pending };
+}
+
+function getPeriodHeadlineInsight(summary, cleanup, topCategories, comparison) {
+  const cleanupCount = cleanup.unknownCount + cleanup.transferMatchCount + cleanup.movementCount;
+  const top = topCategories[0];
+  const topShare = summary.expenses && top ? top.total / summary.expenses : 0;
+  if (cleanup.unknownCount > 20) {
+    return {
+      title: "Tjek datakvalitet",
+      value: `${cleanup.unknownCount} ukendte`,
+      text: `Der ligger ${formatCurrency(topCategories.find((row) => row.category?.id === fallbackCategoryId())?.total || 0)} i ukendt forbrug. Validér de største grupper først, så resten af dashboardet bliver mere præcist.`,
+      badge: "Ryd op først",
+      kind: "negative",
+    };
+  }
+  if (summary.savings < 0) {
+    return {
+      title: "Negativt flow",
+      value: formatCurrency(summary.savings),
+      text: `Udgifterne overstiger indtægterne i perioden. Hold især øje med ${top?.category?.name || "de største kategorier"}${top ? ` (${formatCurrency(top.total)})` : ""}.`,
+      badge: "Kræver blik",
+      kind: "negative",
+    };
+  }
+  if (topShare > 0.35 && top?.category?.id !== fallbackCategoryId()) {
+    return {
+      title: `${top.category.name} fylder`,
+      value: formatPercent(topShare),
+      text: `${top.category.name} står for ${formatCurrency(top.total)} af periodens reelle forbrug. Klik for at dykke ned i modtagere og posteringer.`,
+      badge: "Fokusområde",
+      kind: "positive",
+    };
+  }
+  return {
+    title: "Stabil periode",
+    value: formatCurrency(summary.savings),
+    text: comparison.previous.expenses ? `Cashflow efter forbrug er ${formatCurrency(summary.savings)}. Forbruget er ${comparison.momExpenseDelta <= 0 ? "lavere" : "højere"} end forrige periode.` : "Perioden ser rolig ud. Dyk ned i fordeling eller faste mønstre hvis du vil forstå detaljerne.",
+    badge: "Overblik OK",
+    kind: "positive",
+  };
+}
+
+function renderOverviewVisualReports(periodRows, topCategories, summary, cleanup) {
+  return `
+    <section class="overview-report-grid section" aria-label="Visuelle rapporter">
+      <article class="visual-report-card">
+        <div class="mini-report-heading"><div><span>Forbrugsmix</span><h3>Hvor går pengene hen?</h3></div><button class="link-button" type="button" data-action="open-report" data-report="udgifter">Se alt</button></div>
+        ${renderCategoryDonutReport(topCategories, summary.expenses)}
+      </article>
+      <article class="visual-report-card">
+        <div class="mini-report-heading"><div><span>Rytme</span><h3>Hvornår bruges pengene?</h3></div></div>
+        ${renderSpendingRhythmReport(periodRows)}
+      </article>
+      <article class="visual-report-card">
+        <div class="mini-report-heading"><div><span>Ændringer</span><h3>Hvad flyttede sig?</h3></div><button class="link-button" type="button" data-action="open-report" data-report="udvikling">Trend</button></div>
+        ${renderCategoryMoversReport(periodRows)}
+      </article>
+      <article class="visual-report-card">
+        <div class="mini-report-heading"><div><span>Sommerhus</span><h3>Separat spor</h3></div></div>
+        ${renderSummerhouseSnapshot(periodRows)}
+      </article>
+      <article class="visual-report-card">
+        <div class="mini-report-heading"><div><span>Faste mønstre</span><h3>Gentagne udgifter</h3></div><button class="link-button" type="button" data-action="open-report" data-report="faste">Rapport</button></div>
+        ${renderRecurringMiniReport()}
+      </article>
+      <article class="visual-report-card">
+        <div class="mini-report-heading"><div><span>Datakvalitet</span><h3>Kan tallene stoles på?</h3></div><button class="link-button" type="button" data-nav="oprydning">Ryd op</button></div>
+        ${renderDataQualityReport(periodRows, cleanup)}
+      </article>
+    </section>
+  `;
+}
+
+function renderCategoryDonutReport(rows, totalExpenses) {
+  if (!rows.length || !totalExpenses) return `<div class="empty-state compact-empty"><strong>Ingen udgifter</strong><span>Vælg en periode med forbrug.</span></div>`;
+  let cursor = 0;
+  const segments = rows.slice(0, 5).map((row) => {
+    const share = Math.max(0, row.total / totalExpenses);
+    const end = cursor + share * 100;
+    const color = row.category?.color || "#8a8d84";
+    const segment = `${color} ${cursor.toFixed(2)}% ${end.toFixed(2)}%`;
+    cursor = end;
+    return segment;
+  });
+  if (cursor < 100) segments.push(`rgba(16,35,29,.08) ${cursor.toFixed(2)}% 100%`);
+  return `
+    <div class="donut-report">
+      <div class="donut" style="--donut:${escapeHtml(segments.join(", "))}"><strong>${formatCurrency(totalExpenses)}</strong><span>reelt forbrug</span></div>
+      <div class="donut-legend">
+        ${rows.slice(0, 4).map((row) => `<button type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(row.category.id)}"><i style="--dot:${escapeHtml(row.category.color)}"></i><span>${escapeHtml(row.category.name)}</span><em>${formatPercent(row.total / totalExpenses)}</em></button>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderSpendingRhythmReport(rows) {
+  const buckets = getSpendingRhythmRows(rows);
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.total));
+  const total = buckets.reduce((sum, bucket) => sum + bucket.total, 0);
+  return `
+    <div class="rhythm-report">
+      <div class="rhythm-bars">
+        ${buckets.map((bucket) => `<div class="rhythm-bucket"><span style="--height:${Math.max(5, Math.round((bucket.total / max) * 100))}%"></span><small>${escapeHtml(bucket.label)}</small></div>`).join("")}
+      </div>
+      <p>${total ? `Mest aktivitet: <strong>${escapeHtml(buckets.slice().sort((a, b) => b.total - a.total)[0].label)}</strong>` : "Ingen udgifter i perioden."}</p>
+    </div>
+  `;
+}
+
+function getSpendingRhythmRows(rows) {
+  const buckets = [
+    { label: "1-7", from: 1, to: 7, total: 0, count: 0 },
+    { label: "8-14", from: 8, to: 14, total: 0, count: 0 },
+    { label: "15-21", from: 15, to: 21, total: 0, count: 0 },
+    { label: "22-28", from: 22, to: 28, total: 0, count: 0 },
+    { label: "29-31", from: 29, to: 31, total: 0, count: 0 },
+  ];
+  for (const tx of rows) {
+    const category = categoryById(tx.categoryId);
+    if (!(tx.amount < 0 && category?.kind !== "transfer")) continue;
+    const day = Number(transactionDateForView(tx).slice(8, 10));
+    const bucket = buckets.find((item) => day >= item.from && day <= item.to);
+    if (!bucket) continue;
+    bucket.total += Math.abs(Number(tx.amount || 0));
+    bucket.count += 1;
+  }
+  return buckets;
+}
+
+function renderCategoryMoversReport(periodRows) {
+  const rows = getCategoryMoverRows(periodRows).slice(0, 4);
+  if (!rows.length) return `<div class="empty-state compact-empty"><strong>Ingen sammenligning</strong><span>Der mangler data for forrige periode.</span></div>`;
+  return `<div class="mover-list">${rows.map((row) => `
+    <button type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(row.category.id)}" class="mover-row ${row.delta <= 0 ? "positive" : "negative"}">
+      <span><strong>${escapeHtml(row.category.name)}</strong><small>${row.delta <= 0 ? "lavere" : "højere"} end før</small></span>
+      <em>${row.delta >= 0 ? "+" : ""}${formatCurrency(row.delta)}</em>
+    </button>`).join("")}</div>`;
+}
+
+function getCategoryMoverRows(periodRows) {
+  const current = getCategoryReportRowsForRows(periodRows, "all");
+  const previous = getCategoryReportRowsForRows(getPreviousComparableTransactions(), "all");
+  const ids = new Set([...current.map((row) => row.category?.id), ...previous.map((row) => row.category?.id)].filter(Boolean));
+  return Array.from(ids).map((id) => {
+    const currentRow = current.find((row) => row.category?.id === id);
+    const previousRow = previous.find((row) => row.category?.id === id);
+    const category = currentRow?.category || previousRow?.category || categoryById(id);
+    const delta = (currentRow?.total || 0) - (previousRow?.total || 0);
+    return { category, current: currentRow?.total || 0, previous: previousRow?.total || 0, delta };
+  }).filter((row) => row.category && Math.abs(row.delta) > 50).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+}
+
+function getPreviousComparableTransactions() {
+  const { from, to } = activeDateRange();
+  const days = Math.max(1, Math.abs(daysBetween(to, from)) + 1);
+  const previousTo = shiftDate(from, -1);
+  const previousFrom = shiftDate(previousTo, -(days - 1));
+  return getReportingTransactionsForDateRange(previousFrom, previousTo);
+}
+
+function renderSummerhouseSnapshot(rows) {
+  const summerAccountIds = state.accounts.filter((account) => /sommerhus/.test(normalize(account.name))).map((account) => account.id);
+  const relevant = rows.filter((tx) => tx.categoryId === "cat-summerhouse" || summerAccountIds.includes(tx.accountId) || /(sommerhus|odden|odsherred|yderby)/.test(normalize(`${tx.description} ${accountById(tx.accountId)?.name || ""}`)));
+  const expenses = relevant.filter((tx) => tx.amount < 0 && categoryById(tx.categoryId)?.kind !== "transfer").reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+  const incoming = relevant.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const net = relevant.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  return `
+    <div class="snapshot-metrics">
+      <div><span>Udgifter</span><strong class="amount-negative">${formatCurrency(expenses)}</strong></div>
+      <div><span>Ind/flyt</span><strong class="amount-positive">${formatCurrency(incoming)}</strong></div>
+      <div><span>Netto</span><strong class="${net >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(net)}</strong></div>
+    </div>
+    <p class="mini-report-note">${relevant.length ? `${relevant.length} sommerhusrelaterede posteringer i perioden.` : "Ingen sommerhusposter i perioden."}</p>
+  `;
+}
+
+function renderRecurringMiniReport() {
+  const rows = getRecurringRows().slice(0, 4);
+  if (!rows.length) return `<div class="empty-state compact-empty"><strong>Ikke nok historik</strong><span>Faste mønstre vises når noget går igen.</span></div>`;
+  return `<div class="recurring-mini-list">${rows.map((row) => `<button type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}"><span><strong>${escapeHtml(row.name)}</strong><small>${row.months.length} måneder · ${row.count} poster</small></span><em>${formatCurrency(row.average)}</em></button>`).join("")}</div>`;
+}
+
+function renderDataQualityReport(rows, cleanup) {
+  const periodized = getPeriodizationSummaryForRows(rows);
+  const uncertain = getUncertainCategoryGroupsForRows(rows).length;
+  const totalIssues = uncertain + cleanup.transferMatchCount + periodized.moved;
+  return `
+    <div class="quality-score ${totalIssues ? "attention" : "positive"}">
+      <strong>${totalIssues ? "Tjek anbefales" : "Ser godt ud"}</strong>
+      <span>${periodized.moved} periodiseret · ${uncertain} usikre grupper · ${cleanup.transferMatchCount} konto-match</span>
+    </div>
+    <div class="quality-bars">
+      <span style="--width:${Math.min(100, periodized.moved * 2)}%"></span>
+      <span style="--width:${Math.min(100, uncertain * 8)}%"></span>
+      <span style="--width:${Math.min(100, cleanup.transferMatchCount * 6)}%"></span>
+    </div>
+  `;
+}
+
+function renderCockpitTile(label, value, helper, options = {}) {
+  const attrs = options.action
+    ? `data-action="${escapeHtml(options.action)}"${options.report ? ` data-report="${escapeHtml(options.report)}"` : ""}`
+    : options.nav
+      ? `data-nav="${escapeHtml(options.nav)}"`
+      : "";
+  const formatted = typeof value === "number" && label !== "Ryd op" ? formatCurrency(value) : String(value ?? "—");
+  return `
+    <button class="cockpit-tile ${options.kind || ""}" type="button" ${attrs}>
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(formatted)}</strong>
+      <small>${escapeHtml(helper || "")}</small>
+    </button>
+  `;
+}
+
+function renderDailyFocus(cleanup) {
+  const cleanupCount = cleanup.unknownCount + cleanup.transferMatchCount + cleanup.movementCount;
+  const eb = getBankSyncState().enableBanking || {};
+  const items = [
+    cleanupCount
+      ? { title: "Ryd op i data", text: `${cleanup.unknownCount} ukendte kategorier, ${cleanup.transferMatchCount} konto-match og ${cleanup.movementCount} mulige flytninger.`, nav: "oprydning", tone: "attention", cta: "Ryd op" }
+      : { title: "Data ser rolig ud", text: "Ingen akutte oprydningsopgaver i den valgte periode.", nav: "rapporter", tone: "positive", cta: "Se analyser" },
+    { title: "Bankdata", text: eb.lastSyncAt ? `Seneste sync ${formatDateTime(eb.lastSyncAt)} · ${eb.accounts?.length || 0} konti` : "Hent Open Banking-data for at holde overblikket frisk.", nav: "bank-sync", tone: eb.lastSyncAt ? "positive" : "attention", cta: "Bankdata" },
+    { title: "Dyk dybere", text: "Se modtagere, faste udgifter, konti og overførsler uden at forlade perioden.", action: "open-report", report: "overblik", tone: "neutral", cta: "Analyser" },
+  ];
+  return items.map((item) => `
+    <button class="daily-focus-card ${item.tone}" type="button" ${item.nav ? `data-nav="${escapeHtml(item.nav)}"` : `data-action="${escapeHtml(item.action)}" data-report="${escapeHtml(item.report)}"`}>
+      <span>${escapeHtml(item.cta)}</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      <small>${escapeHtml(item.text)}</small>
+    </button>
+  `).join("");
+}
+
+function renderAssetBase(liquid) {
+  const investmentTransfers = getPeriodTransactions()
+    .filter((tx) => tx.relationType === "investering" || tx.categoryId === "cat-savings")
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const rows = [
+    { label: "Konti", value: formatCurrency(liquid.total), text: `${liquid.count} bankkonti`, active: true },
+    { label: "Investeringer", value: "Senere", text: investmentTransfers ? `${formatCurrency(Math.abs(investmentTransfers))} flyttet i perioden` : "Kobles på senere", active: false },
+    { label: "Ejendom", value: "Senere", text: "Klar som næste modul", active: false },
+  ];
+  return `
+    <div class="asset-base">
+      ${rows.map((row) => `
+        <div class="asset-row ${row.active ? "" : "muted"}">
+          <div><strong>${escapeHtml(row.label)}</strong><small>${escapeHtml(row.text)}</small></div>
+          <em>${escapeHtml(row.value)}</em>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderRecentActivityList(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen aktivitet</strong><span>Hent bankdata eller vælg en anden periode.</span></div>`;
+  return `
+    <div class="activity-list">
+      ${rows.map((tx) => {
+        const category = categoryById(tx.categoryId);
+        return `
+          <button class="activity-row" type="button" data-action="open-transaction" data-id="${escapeHtml(tx.id)}">
+            <span class="activity-date">${escapeHtml(formatDate(transactionDateForView(tx)))}</span>
+            <span class="activity-main"><strong>${escapeHtml(tx.description)}</strong><small>${escapeHtml(accountById(tx.accountId)?.name || "Ukendt konto")} · ${escapeHtml(category?.name || "Ukendt")}</small></span>
+            <span class="activity-amount ${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</span>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function getLiquidAssetsSummary() {
+  const accounts = state.accounts || [];
+  const total = accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
+  return { total, count: accounts.length, accounts };
+}
+
+function normalizeWealthSettings(wealth = {}) {
+  const existingProperties = Array.isArray(wealth.properties) ? wealth.properties : [];
+  const properties = DEFAULT_WEALTH_PROPERTIES.map((defaults) => {
+    const existing = existingProperties.find((item) => item?.id === defaults.id) || {};
+    return {
+      ...defaults,
+      ...existing,
+      estimatedValue: Number(existing.estimatedValue ?? defaults.estimatedValue ?? 0) || 0,
+      debt: Number(existing.debt ?? defaults.debt ?? 0) || 0,
+    };
+  });
+  const pension = {
+    ...DEFAULT_WEALTH_PENSION,
+    ...(wealth.pension || {}),
+    value: Number(wealth.pension?.value ?? 0) || 0,
+  };
+  return {
+    primaryCashAccountId: wealth.primaryCashAccountId || "",
+    properties,
+    pension,
+    deltaPortfolio: wealth.deltaPortfolio || null,
+  };
+}
+
+function getWealthSettings() {
+  state.settings.wealth = normalizeWealthSettings(state.settings.wealth);
+  if (!state.settings.wealth.primaryCashAccountId) {
+    state.settings.wealth.primaryCashAccountId = inferPrimaryCashAccount()?.id || state.accounts[0]?.id || "";
+  }
+  return state.settings.wealth;
+}
+
+function inferPrimaryCashAccount() {
+  return state.accounts.find((account) => /løn|loen|sparekassen kronjylland/i.test(account.name || "") && !/mastercard|kredit|depot/i.test(`${account.name} ${account.type}`))
+    || state.accounts.find((account) => /bankkonto/i.test(account.type || "") && !/mastercard|kredit|depot/i.test(`${account.name} ${account.type}`))
+    || state.accounts[0];
+}
+
+function getPrimaryCashAccount() {
+  const wealth = getWealthSettings();
+  return accountById(wealth.primaryCashAccountId) || inferPrimaryCashAccount() || null;
+}
+
+function getWealthSummary() {
+  const wealth = getWealthSettings();
+  const cashAccount = getPrimaryCashAccount();
+  const cash = Number(cashAccount?.balance || 0);
+  const properties = wealth.properties.map((property) => {
+    const estimatedValue = Number(property.estimatedValue || 0);
+    const debt = Number(property.debt || 0);
+    return {
+      ...property,
+      estimatedValue,
+      debt,
+      equity: estimatedValue - debt,
+      complete: estimatedValue > 0 || debt > 0,
+    };
+  });
+  const propertyValue = properties.reduce((sum, property) => sum + property.estimatedValue, 0);
+  const propertyDebt = properties.reduce((sum, property) => sum + property.debt, 0);
+  const propertyEquity = properties.reduce((sum, property) => sum + property.equity, 0);
+  const deltaPortfolio = wealth.deltaPortfolio || null;
+  const investments = Number(deltaPortfolio?.summary?.marketValueDkk || deltaPortfolio?.summary?.openCostDkk || 0);
+  const pensionInfo = wealth.pension || DEFAULT_WEALTH_PENSION;
+  const pension = Number(pensionInfo.value || 0);
+  const total = cash + propertyEquity + investments + pension;
+  return { cash, cashAccount, properties, propertyValue, propertyDebt, propertyEquity, investments, pension, pensionInfo, total, deltaPortfolio };
+}
+
+function renderWealthView() {
+  const summary = getWealthSummary();
+  return `
+    <section class="wealth-layout">
+      <aside class="wealth-overview-panel" aria-label="Samlet formue">
+        <p class="eyebrow">Samlet formue</p>
+        <h2>${formatCurrency(summary.total)}</h2>
+        <p>Kontanter, boligformue, investeringer og pension. Småpositioner skjules i listerne, men tæller med i totalen.</p>
+        <div class="wealth-stack">
+          ${renderWealthLine("Kontanter", summary.cash, summary.cashAccount?.name || "Primær lønkonto")}
+          ${renderWealthLine("Boligformue", summary.propertyEquity, `${formatCurrency(summary.propertyValue)} vurdering · ${formatCurrency(summary.propertyDebt)} restgæld`)}
+          ${renderWealthLine("Aktier", summary.deltaPortfolio ? (summary.deltaPortfolio.summary.stockMarketValueDkk || summary.deltaPortfolio.summary.stockCostDkk || 0) : 0, summary.deltaPortfolio ? `Delta · ${summary.deltaPortfolio.summary.stockPositions || 0} positioner` : "Importer Delta CSV", !summary.deltaPortfolio)}
+          ${renderWealthLine("Crypto", summary.deltaPortfolio ? (summary.deltaPortfolio.summary.cryptoMarketValueDkk || summary.deltaPortfolio.summary.cryptoCostDkk || 0) : 0, summary.deltaPortfolio ? `Delta · ${summary.deltaPortfolio.summary.cryptoPositions || 0} positioner` : "Importer Delta CSV", !summary.deltaPortfolio)}
+          ${renderWealthLine("Pension", summary.pension, summary.pensionInfo?.provider || "Pension", !summary.pension)}
+        </div>
+      </aside>
+
+      <div class="wealth-main-panel">
+        <section class="panel pad wealth-section">
+          <div class="section-heading clean-heading">
+            <div>
+              <h2>Bolig</h2>
+              <p>Indtast cirka-vurdering og restgæld. Friværdi beregnes som vurdering minus restgæld.</p>
+            </div>
+            <div class="wealth-total-pill"><span>Boligformue</span><strong>${formatCurrency(summary.propertyEquity)}</strong></div>
+          </div>
+          <div class="property-wealth-list">
+            ${summary.properties.map(renderPropertyWealthRow).join("")}
+          </div>
+        </section>
+
+        ${renderDeltaInvestmentModule(summary.deltaPortfolio)}
+
+        <section class="wealth-secondary-grid">
+          <div class="panel pad wealth-section">
+            <div class="section-heading clean-heading">
+              <div>
+                <h2>Kontanter</h2>
+                <p>Bruger kun beholdningen fra den primære lønkonto.</p>
+              </div>
+            </div>
+            <label class="field">
+              <span class="label">Primær lønkonto</span>
+              <select class="select" id="wealth-primary-account">
+                ${state.accounts.map((account) => option(account.id, `${account.name} · ${formatCurrency(Number(account.balance || 0))}`, summary.cashAccount?.id === account.id)).join("")}
+              </select>
+            </label>
+            <div class="wealth-cash-readout">
+              <span>${escapeHtml(summary.cashAccount?.name || "Ingen konto valgt")}</span>
+              <strong>${formatCurrency(summary.cash)}</strong>
+            </div>
+          </div>
+
+          <div class="panel pad wealth-section pension-module">
+            <div class="section-heading clean-heading">
+              <div>
+                <h2>Pension</h2>
+                <p>Foreløbig pensionsværdi. Den kan opdateres manuelt, når PFA-tallet ændrer sig.</p>
+              </div>
+              <span class="pill muted">PFA</span>
+            </div>
+            <label class="field">
+              <span class="label">Udbyder</span>
+              <input class="input" id="wealth-pension-provider" value="${escapeHtml(summary.pensionInfo?.provider || "PFA")}" />
+            </label>
+            <label class="field">
+              <span class="label">Aktuel pensionsværdi</span>
+              <input class="input" inputmode="decimal" id="wealth-pension-value" value="${escapeHtml(summary.pension ? formatAmountInput(summary.pension) : "")}" placeholder="${ui.privacyMode ? "Skjult" : "fx 865.000"}" ${privacyInputAttrs()} />
+            </label>
+            <div class="wealth-cash-readout pension-readout">
+              <span>${escapeHtml(summary.pensionInfo?.provider || "Pension")}</span>
+              <strong>${formatCurrency(summary.pension)}</strong>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  `;
+}
+
+function renderDeltaInvestmentModule(deltaPortfolio) {
+  if (!deltaPortfolio) {
+    return `
+      <div class="panel pad wealth-section investment-module">
+        <div class="section-heading clean-heading">
+          <div>
+            <h2>Investeringer</h2>
+            <p>Importer Delta-CSV, så viser vi aktier og crypto adskilt med aktuel værdi og afkast.</p>
+          </div>
+          <button class="button primary" type="button" data-action="trigger-delta-import">Importer Delta</button>
+        </div>
+        <input class="hidden-file" id="delta-csv-file" type="file" accept=".csv,text/csv,text/plain" />
+        <div class="empty-state compact-empty"><strong>Delta er klar</strong><span>Vælg eksportfilen fra Delta. Herefter hentes gratis kurser via Stooq/Yahoo/CoinGecko.</span></div>
+      </div>
+    `;
+  }
+  recomputeDeltaPortfolioSummary(deltaPortfolio);
+  const holdings = deltaPortfolio.holdings || [];
+  const stocks = holdings.filter((item) => item.type !== "CRYPTO");
+  const crypto = holdings.filter((item) => item.type === "CRYPTO");
+  const summary = deltaPortfolio.summary || {};
+  const value = Number(summary.marketValueDkk || summary.openCostDkk || 0);
+  const gain = summary.gainDkk;
+  const gainKind = Number(gain || 0) >= 0 ? "positive" : "negative";
+  return `
+    <div class="panel pad wealth-section investment-module investment-module-premium">
+      <div class="section-heading clean-heading">
+        <div>
+          <h2>Investeringer</h2>
+          <p>Aktier og crypto er adskilt. Delta er kilde til beholdninger/kostbasis; kurser hentes gratis.</p>
+        </div>
+        <div class="actions">
+          <button class="button primary" type="button" data-action="refresh-market-prices">Opdatér kurser</button>
+          <button class="button ghost" type="button" data-action="trigger-delta-import">Ny Delta CSV</button>
+        </div>
+      </div>
+      <input class="hidden-file" id="delta-csv-file" type="file" accept=".csv,text/csv,text/plain" />
+
+      <div class="portfolio-hero separated">
+        <div>
+          <span>Samlet aktuel værdi</span>
+          <strong>${formatCurrency(value)}</strong>
+          <small>${summary.pricedPositions || 0}/${summary.openPositions || 0} positioner med kurser · ${deltaPortfolio.marketPricesUpdatedAt ? `opdateret ${formatDate(deltaPortfolio.marketPricesUpdatedAt.slice(0, 10))}` : "kurser mangler"}</small>
+        </div>
+        <div class="${gainKind}">
+          <span>Samlet afkast</span>
+          <strong>${gain == null ? "—" : `${gain >= 0 ? "+" : ""}${formatCurrency(gain)}`}</strong>
+          <small>${summary.gainPct == null ? "Kostbasis vises indtil kurser er hentet" : `${gain >= 0 ? "+" : ""}${formatPercent(summary.gainPct)}`}</small>
+        </div>
+      </div>
+
+      <div class="portfolio-split-bar" aria-label="Fordeling mellem aktier og crypto">
+        <span style="--width:${portfolioShare(summary.stockMarketValueDkk || summary.stockCostDkk, value || summary.openCostDkk)}%"></span>
+        <em style="--width:${portfolioShare(summary.cryptoMarketValueDkk || summary.cryptoCostDkk, value || summary.openCostDkk)}%"></em>
+      </div>
+
+      <div class="portfolio-category-grid">
+        ${renderHoldingSection({
+          title: "Aktier",
+          subtitle: `${summary.stockPositions || stocks.length} positioner`,
+          value: summary.stockMarketValueDkk || summary.stockCostDkk || 0,
+          cost: summary.stockCostDkk || 0,
+          gain: summary.stockGainDkk,
+          gainPct: summary.stockGainPct,
+          holdings: stocks,
+          tone: "stocks",
+        })}
+        ${renderHoldingSection({
+          title: "Crypto",
+          subtitle: `${summary.cryptoPositions || crypto.length} positioner`,
+          value: summary.cryptoMarketValueDkk || summary.cryptoCostDkk || 0,
+          cost: summary.cryptoCostDkk || 0,
+          gain: summary.cryptoGainDkk,
+          gainPct: summary.cryptoGainPct,
+          holdings: crypto,
+          tone: "crypto",
+        })}
+      </div>
+      <p class="helper">Positioner under 1.000 kr. er skjult fra listen, men tæller stadig med i totalerne. Tryk “Opdatér kurser” for at hente seneste gratis aktie- og cryptokurser.</p>
+    </div>
+  `;
+}
+
+function renderHoldingSection({ title, subtitle, value, cost, gain, gainPct, holdings, tone }) {
+  const minimumVisibleValue = 1000;
+  const visibleHoldings = holdings.filter((holding) => Number(holding.marketValueDkk || holding.costDkk || 0) >= minimumVisibleValue);
+  const hiddenCount = holdings.length - visibleHoldings.length;
+  const rows = visibleHoldings.slice(0, 12);
+  const max = Math.max(1, ...rows.map((item) => Number(item.marketValueDkk || item.costDkk || 0)));
+  const kind = gain == null ? "muted" : gain >= 0 ? "positive" : "negative";
+  return `
+    <section class="asset-class-card ${escapeHtml(tone)}">
+      <div class="asset-class-head">
+        <div>
+          <span>${escapeHtml(subtitle)}${hiddenCount ? ` · ${hiddenCount} under 1.000 kr. skjult` : ""}</span>
+          <h3>${escapeHtml(title)}</h3>
+        </div>
+        <div class="asset-class-value ${kind}">
+          <strong>${formatCurrency(value)}</strong>
+          <small>${gain == null ? `Kostbasis ${formatCurrency(cost)}` : `${gain >= 0 ? "+" : ""}${formatCurrency(gain)} · ${gainPct == null ? "—" : `${gain >= 0 ? "+" : ""}${formatPercent(gainPct)}`}`}</small>
+        </div>
+      </div>
+      <div class="investment-bars premium-bars">
+        ${rows.length ? rows.map((holding) => renderHoldingRow(holding, max)).join("") : `<div class="empty-state compact-empty"><strong>Ingen ${escapeHtml(title.toLowerCase())} over 1.000 kr.</strong><span>Småpositioner er skjult fra overblikket, men tæller stadig med i totalen.</span></div>`}
+      </div>
+    </section>
+  `;
+}
+
+function portfolioShare(part, total) {
+  return Math.max(0, Math.min(100, total ? Math.round((Number(part || 0) / Number(total || 1)) * 100) : 0));
+}
+
+function renderHoldingRow(holding, max) {
+  const current = Number(holding.marketValueDkk || 0);
+  const basis = Number(holding.costDkk || 0);
+  const displayValue = current || basis;
+  const gain = holding.gainDkk;
+  const pct = holding.gainPct;
+  const priced = current > 0;
+  const kind = gain == null ? "muted" : gain >= 0 ? "positive" : "negative";
+  return `
+    <button class="investment-bar-row premium ${kind}" type="button" data-action="noop">
+      <span class="holding-name"><strong>${escapeHtml(holding.symbol)}</strong><small>${escapeHtml(holding.name)} · ${formatNumber(holding.quantity)} stk.</small></span>
+      <i><b style="--width:${Math.max(4, Math.round((displayValue / max) * 100))}%"></b></i>
+      <span class="holding-return"><strong>${formatCurrency(displayValue)}</strong><small>${priced ? `${gain >= 0 ? "+" : ""}${formatCurrency(gain)} · ${pct == null ? "—" : `${gain >= 0 ? "+" : ""}${formatPercent(pct)}`}` : "mangler kurs"}</small></span>
+    </button>
+  `;
+}
+
+function formatNumber(value) {
+  if (isPrivacyMode()) return privateNumberLabel();
+  return new Intl.NumberFormat("da-DK", { maximumFractionDigits: Math.abs(Number(value || 0)) >= 10 ? 2 : 6 }).format(Number(value || 0));
+}
+
+async function readDeltaCsvFile(file) {
+  if (!file) return;
+  try {
+    const content = await readFileAsText(file);
+    const portfolio = parseDeltaPortfolioCsv(content, file.name);
+    const wealth = getWealthSettings();
+    wealth.deltaPortfolio = portfolio;
+    saveState();
+    render();
+    notify(`Delta importeret: ${portfolio.summary.openPositions} åbne positioner. Henter dagens kurser...`);
+    await refreshDeltaMarketPrices({ silent: true });
+  } catch (error) {
+    console.error(error);
+    notify(`Delta CSV kunne ikke importeres: ${error.message}`, "danger");
+  }
+}
+
+async function refreshDeltaMarketPrices({ silent = false } = {}) {
+  const portfolio = getWealthSettings().deltaPortfolio;
+  if (!portfolio?.holdings?.length) {
+    notify("Importer Delta CSV først.", "danger");
+    return;
+  }
+  try {
+    const data = await apiFetch("/api/market-prices", {
+      method: "POST",
+      body: { holdings: portfolio.holdings.map(({ symbol, type, exchange, name }) => ({ symbol, type, exchange, name })) },
+    });
+    applyMarketPricesToDeltaPortfolio(portfolio, data.quotes || []);
+    portfolio.marketPricesUpdatedAt = data.asOf || new Date().toISOString();
+    portfolio.fx = data.fx || portfolio.fx || {};
+    recomputeDeltaPortfolioSummary(portfolio);
+    saveState();
+    render();
+    if (!silent) notify(`Kurser opdateret: ${portfolio.summary.pricedPositions}/${portfolio.summary.openPositions} positioner.`);
+    else notify(`Delta og dagens kurser er opdateret: ${portfolio.summary.pricedPositions}/${portfolio.summary.openPositions} positioner.`);
+  } catch (error) {
+    console.error(error);
+    notify(`Kunne ikke hente markedskurser: ${error.message}`, "danger");
+  }
+}
+
+function applyMarketPricesToDeltaPortfolio(portfolio, quotes) {
+  const bySymbol = new Map((quotes || []).map((quote) => [quote.symbol, quote]));
+  for (const holding of portfolio.holdings || []) {
+    const quote = bySymbol.get(holding.symbol) || bySymbol.get(String(holding.symbol || "").replace(/\*+$/, ""));
+    if (!quote || !Number(quote.priceDkk)) {
+      holding.marketPriceDkk = 0;
+      holding.marketValueDkk = 0;
+      holding.gainDkk = null;
+      holding.gainPct = null;
+      holding.priceSource = quote?.source || "";
+      holding.priceError = quote?.error || "Ingen kurs";
+      continue;
+    }
+    holding.marketPrice = Number(quote.price || 0);
+    holding.marketCurrency = quote.currency || "DKK";
+    holding.marketPriceDkk = Number(quote.priceDkk || 0);
+    holding.marketValueDkk = holding.quantity * holding.marketPriceDkk;
+    holding.gainDkk = holding.marketValueDkk - Number(holding.costDkk || 0);
+    holding.gainPct = Number(holding.costDkk || 0) > 0 ? holding.gainDkk / Number(holding.costDkk || 0) : null;
+    holding.priceAsOf = quote.asOf || "";
+    holding.priceSource = quote.source || "";
+    holding.priceError = quote.error || "";
+    holding.changePct = Number.isFinite(Number(quote.changePct)) ? Number(quote.changePct) : null;
+  }
+}
+
+function recomputeDeltaPortfolioSummary(portfolio) {
+  const holdings = portfolio.holdings || [];
+  const sum = (rows, field) => rows.reduce((total, item) => total + Number(item[field] || 0), 0);
+  const stocks = holdings.filter((item) => item.type !== "CRYPTO");
+  const crypto = holdings.filter((item) => item.type === "CRYPTO");
+  const priced = holdings.filter((item) => Number(item.marketValueDkk || 0) > 0);
+  const openCostDkk = sum(holdings, "costDkk");
+  const stockCostDkk = sum(stocks, "costDkk");
+  const cryptoCostDkk = sum(crypto, "costDkk");
+  const marketValueDkk = sum(holdings, "marketValueDkk");
+  const stockMarketValueDkk = sum(stocks, "marketValueDkk");
+  const cryptoMarketValueDkk = sum(crypto, "marketValueDkk");
+  const hasPrices = marketValueDkk > 0;
+  const stockHasPrices = stockMarketValueDkk > 0;
+  const cryptoHasPrices = cryptoMarketValueDkk > 0;
+  const stockGainDkk = stockHasPrices ? stockMarketValueDkk - stockCostDkk : null;
+  const cryptoGainDkk = cryptoHasPrices ? cryptoMarketValueDkk - cryptoCostDkk : null;
+  portfolio.summary = {
+    ...(portfolio.summary || {}),
+    openPositions: holdings.length,
+    stockPositions: stocks.length,
+    cryptoPositions: crypto.length,
+    pricedPositions: priced.length,
+    openCostDkk,
+    stockCostDkk,
+    cryptoCostDkk,
+    marketValueDkk,
+    stockMarketValueDkk,
+    cryptoMarketValueDkk,
+    stockGainDkk,
+    cryptoGainDkk,
+    stockGainPct: stockHasPrices && stockCostDkk > 0 ? stockGainDkk / stockCostDkk : null,
+    cryptoGainPct: cryptoHasPrices && cryptoCostDkk > 0 ? cryptoGainDkk / cryptoCostDkk : null,
+    gainDkk: hasPrices ? marketValueDkk - openCostDkk : null,
+    gainPct: hasPrices && openCostDkk > 0 ? (marketValueDkk - openCostDkk) / openCostDkk : null,
+    unpricedPositions: holdings.length - priced.length,
+  };
+  portfolio.holdings.sort((a, b) => (Number(b.marketValueDkk || b.costDkk || 0) - Number(a.marketValueDkk || a.costDkk || 0)));
+  return portfolio.summary;
+}
+
+function parseDeltaPortfolioCsv(content, fileName = "Delta CSV") {
+  const parsed = parseCsv(content || "");
+  const rows = parsed.rows || [];
+  if (!rows.length || !parsed.headers.includes("Way") || !parsed.headers.includes("Base currency (name)")) {
+    throw new Error("Filen ligner ikke en Delta-porteføljeeksport.");
+  }
+  const fx = { DKK: 1, USD: 6.95, EUR: 7.46, NOK: 0.64, SEK: 0.67, GBP: 8.7, BTC: 280000, ETH: 14000, USDT: 6.95, BNB: 2100 };
+  const positions = new Map();
+  let trades = 0;
+  let lastDate = "";
+
+  for (const row of rows) {
+    const type = String(row["Base type"] || "").toUpperCase();
+    if (!["STOCK", "FUND", "CRYPTO"].includes(type)) continue;
+    const way = String(row.Way || "").toUpperCase();
+    if (!["BUY", "SELL", "DEPOSIT", "WITHDRAW", "TRANSFER"].includes(way)) continue;
+    const quantity = Number(row["Base amount"] || 0);
+    const quoteAmount = Number(row["Quote amount"] || 0) || 0;
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+
+    const { symbol, name } = parseDeltaAssetName(row["Base currency (name)"] || "");
+    const quoteCurrency = String(row["Quote currency"] || "DKK").toUpperCase();
+    const quoteDkk = quoteAmount * (fx[quoteCurrency] || 1);
+    const feeAmount = Number(row["Fee amount"] || 0) || 0;
+    const feeCurrency = String(row["Fee currency (name)"] || quoteCurrency).replace(/.*\(([^)]+)\).*/, "$1").toUpperCase();
+    const feeDkk = feeAmount * (fx[feeCurrency] || fx[quoteCurrency] || 1);
+    const date = String(row.Date || "").slice(0, 10);
+    if (date > lastDate) lastDate = date;
+
+    const position = positions.get(symbol) || {
+      symbol,
+      name,
+      type,
+      exchange: row.Exchange || "",
+      quoteCurrency,
+      quantity: 0,
+      costDkk: 0,
+      boughtDkk: 0,
+      soldDkk: 0,
+      trades: 0,
+      lastDate: "",
+    };
+    position.trades += 1;
+    position.lastDate = date || position.lastDate;
+    trades += 1;
+
+    if (way === "BUY") {
+      position.quantity += quantity;
+      position.costDkk += quoteDkk + feeDkk;
+      position.boughtDkk += quoteDkk + feeDkk;
+    } else if (way === "SELL") {
+      const averageCost = position.quantity > 0 ? position.costDkk / position.quantity : 0;
+      const soldQuantity = Math.min(quantity, Math.max(0, position.quantity));
+      position.quantity -= quantity;
+      position.costDkk -= averageCost * soldQuantity;
+      position.soldDkk += quoteDkk - feeDkk;
+    } else if (way === "DEPOSIT") {
+      position.quantity += quantity;
+    } else if (way === "WITHDRAW") {
+      const averageCost = position.quantity > 0 ? position.costDkk / position.quantity : 0;
+      const movedQuantity = Math.min(quantity, Math.max(0, position.quantity));
+      position.quantity -= quantity;
+      position.costDkk -= averageCost * movedQuantity;
+    }
+
+    if (Math.abs(position.quantity) < 0.000001) {
+      position.quantity = 0;
+      position.costDkk = 0;
+    }
+    positions.set(symbol, position);
+  }
+
+  const holdings = Array.from(positions.values())
+    .filter((position) => position.quantity > 0.000001)
+    .map((position) => ({ ...position, costDkk: Math.max(0, position.costDkk) }));
+  const portfolio = {
+    source: "delta-csv",
+    sourceFile: fileName,
+    importedAt: new Date().toISOString(),
+    lastTradeDate: lastDate,
+    holdings,
+    summary: { trades, fxNote: "Kostbasis er beregnet fra Delta-handler. Aktuel værdi hentes fra Stooq/Yahoo/CoinGecko." },
+  };
+  recomputeDeltaPortfolioSummary(portfolio);
+  return portfolio;
+}
+
+function parseDeltaAssetName(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/^([^\s]+)\s*\((.*)\)$/);
+  if (!match) return { symbol: text || "?", name: text || "Ukendt" };
+  return { symbol: match[1], name: match[2] || match[1] };
+}
+
+function renderWealthLine(label, value, detail, muted = false) {
+  return `
+    <div class="wealth-line ${muted ? "muted" : ""}">
+      <span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail || "")}</small></span>
+      <em>${muted ? "—" : formatCurrency(value)}</em>
+    </div>
+  `;
+}
+
+function renderPropertyWealthRow(property) {
+  return `
+    <div class="property-wealth-row">
+      <div class="property-identity">
+        <span>${escapeHtml(property.name)}</span>
+        <strong>${formatCurrency(property.equity)}</strong>
+        <small>${property.complete ? "Friværdi = vurdering minus restgæld" : "Udfyld vurdering og restgæld"}</small>
+      </div>
+      <label class="field">
+        <span class="label">Nogenlunde vurdering</span>
+        <input class="input" inputmode="decimal" data-wealth-property="${escapeHtml(property.id)}" data-wealth-field="estimatedValue" value="${escapeHtml(property.estimatedValue ? formatAmountInput(property.estimatedValue) : "")}" placeholder="${ui.privacyMode ? "Skjult" : "fx 4.500.000"}" ${privacyInputAttrs()} />
+      </label>
+      <label class="field">
+        <span class="label">Restgæld</span>
+        <input class="input" inputmode="decimal" data-wealth-property="${escapeHtml(property.id)}" data-wealth-field="debt" value="${escapeHtml(property.debt ? formatAmountInput(property.debt) : "")}" placeholder="${ui.privacyMode ? "Skjult" : "fx 2.800.000"}" ${privacyInputAttrs()} />
+      </label>
+    </div>
+  `;
+}
+
+function getDashboardComparison(month) {
+  const current = getMonthlySummary(month);
+  const previous = getMonthlySummary(shiftMonth(month, -1));
+  const lastYear = getMonthlySummary(shiftMonth(month, -12));
+  return {
+    current,
+    previous,
+    lastYear,
+    momExpenseDelta: current.expenses - previous.expenses,
+    yoyExpenseDelta: current.expenses - lastYear.expenses,
+    incomeCountLabel: `${current.incomeCount} indtægt${current.incomeCount === 1 ? "" : "er"}`,
+  };
+}
+
+function renderDeltaPill(label, delta, basis) {
+  const hasBasis = Number(basis || 0) > 0;
+  const positive = delta <= 0;
+  const pct = hasBasis ? delta / basis : 0;
+  return `
+    <span class="delta-pill ${positive ? "positive" : "negative"}">
+      <small>${escapeHtml(label)}</small>
+      <strong>${hasBasis ? `${delta > 0 ? "+" : ""}${formatPercent(pct)}` : "—"}</strong>
+      <em>${hasBasis ? `${formatCurrency(Math.abs(delta))} ${delta <= 0 ? "lavere" : "højere"}` : "mangler data"}</em>
+    </span>
+  `;
+}
+
+function renderCashflowVisual(summary) {
+  const max = Math.max(1, summary.income, summary.expenses, Math.abs(summary.savings));
+  const rows = [
+    { label: "Ind", value: summary.income, kind: "income" },
+    { label: "Ud", value: summary.expenses, kind: "expense" },
+    { label: "Tilbage", value: summary.savings, kind: summary.savings >= 0 ? "income" : "expense" },
+  ];
+  return `
+    <div class="cashflow-bars">
+      ${rows.map((row) => `
+        <div class="cashflow-row ${row.kind}">
+          <div><span>${escapeHtml(row.label)}</span><strong>${formatCurrency(row.value)}</strong></div>
+          <i style="--width:${Math.max(4, Math.round((Math.abs(row.value) / max) * 100))}%"></i>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderDashboardTrend(month) {
+  const months = lastMonths(month, 12);
+  const summaries = months.map((item) => ({ month: item, ...getMonthlySummary(item) }));
+  const max = Math.max(1, ...summaries.map((item) => item.expenses));
+  return `
+    <div class="mom-yoy-chart" aria-label="Forbrug de seneste 12 måneder">
+      ${summaries.map((item) => {
+        const active = item.month === month;
+        const previous = getMonthlySummary(shiftMonth(item.month, -1)).expenses;
+        const delta = item.expenses - previous;
+        const height = Math.max(5, Math.round((item.expenses / max) * 100));
+        return `
+          <button class="mom-yoy-month ${active ? "active" : ""}" type="button" data-month-jump="${escapeHtml(item.month)}" title="${escapeHtml(monthLabel(item.month))}: ${formatCurrency(item.expenses)}">
+            <span class="mom-yoy-bar ${delta <= 0 ? "positive" : "negative"}" style="--height:${height}%"></span>
+            <small>${escapeHtml(shortMonthLabel(item.month))}</small>
+          </button>
+        `;
+      }).join("")}
+    </div>
+    <div class="trend-footnote">
+      <span class="dot positive"></span> lavere end måneden før
+      <span class="dot negative"></span> højere end måneden før
+    </div>
+  `;
+}
+
+function renderCategoryBreakdownCompact(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen forbrug endnu</strong><span>Synk bankdata eller vælg en anden måned.</span></div>`;
+  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  const max = Math.max(...rows.map((row) => row.total));
+  return `
+    <div class="category-compact-list">
+      ${rows.map((row) => {
+        const pct = max ? Math.max(4, Math.round((row.total / max) * 100)) : 0;
+        const share = total ? row.total / total : 0;
+        return `
+          <button class="category-compact-row" type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(row.category.id)}">
+            <span class="color-dot" style="--dot:${escapeHtml(row.category.color)}"></span>
+            <span><strong>${escapeHtml(row.category.name)}</strong><small>${formatPercent(share)} · ${row.count} poster</small></span>
+            <em>${formatCurrency(row.total)}</em>
+            <i style="--width:${pct}%"></i>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderDashboardCleanup(cleanup) {
+  const count = cleanup.unknownCount + cleanup.transferMatchCount + cleanup.movementCount;
+  if (!count) return "";
+  return `
+    <section class="section panel pad cleanup-callout compact-callout">
+      <div>
+        <h2>${count} ting kan ryddes op</h2>
+        <p>${cleanup.transferMatchCount} overførsler · ${cleanup.movementCount} flytninger · ${cleanup.unknownCount} ukendte kategorier</p>
+      </div>
+      <button class="button primary" type="button" data-nav="oprydning">Ryd op</button>
+    </section>
+  `;
+}
+
+function renderReportsView() {
+  const modes = [
+    ["overblik", "Nøgletal"],
+    ["udgifter", "Forbrug"],
+    ["udvikling", "Udvikling"],
+    ["modtagere", "Modtagere"],
+    ["faste", "Faste"],
+    ["konti", "Konti"],
+    ["overfoersler", "Overførsler"],
+  ];
+  return `
+    <section class="panel pad report-toolbar">
+      <div class="section-heading clean-heading">
+        <div>
+          <h2>Analyser</h2>
+          <p>Færdige rapporter, der forklarer forbrug, udvikling og mønstre.</p>
+        </div>
+        <div class="field" style="min-width: 220px;">
+          <label for="report-account-filter">Konto</label>
+          <select class="select" id="report-account-filter">
+            <option value="all">Alle konti</option>
+            ${state.accounts.map((account) => option(account.id, account.name, ui.reportAccountFilter === account.id)).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="report-tabs" role="tablist" aria-label="Rapporttyper">
+        ${modes.map(([id, label]) => `<button class="report-tab ${ui.reportMode === id ? "active" : ""}" type="button" data-action="report-tab" data-report="${id}">${label}</button>`).join("")}
+      </div>
+    </section>
+    ${renderCurrentReport()}
+  `;
+}
+
+function renderCurrentReport() {
+  if (ui.reportMode === "udvikling") return renderTrendReport();
+  if (ui.reportMode === "modtagere") return renderMerchantsDeepReport();
+  if (ui.reportMode === "faste") return renderRecurringReport();
+  if (ui.reportMode === "konti") return renderAccountsReport();
+  if (ui.reportMode === "overfoersler") return renderTransfersReport();
+  if (ui.reportMode === "oprydning") return renderCleanupReport();
+  if (ui.reportMode === "udgifter") return renderExpenseReport();
+  return renderOverviewReport();
+}
+
+function renderOverviewReport() {
+  const periodRows = getPeriodTransactions();
+  const reportingRows = getPeriodReportingTransactions();
+  const summary = getPeriodSummary();
+  const comparison = getPeriodComparison();
+  const categories = getPeriodCategoryReportRows().slice(0, 7);
+  const merchants = getPeriodMerchantReportRows().slice(0, 7);
+  const recurring = getRecurringCommitmentRows().slice(0, 6);
+  const movers = getCategoryMoverRows(reportingRows).slice(0, 4);
+  const quality = getAnalysisQuality(periodRows);
+  const pace = getAnalysisPace(summary, comparison);
+  const concentration = getAnalysisConcentration(categories, merchants, summary);
+  const crosscheck = getCrosscheckSummary(periodRows, reportingRows);
+  return `
+    <section class="analysis-command section" aria-label="Analyseoverblik">
+      <div class="analysis-command-copy">
+        <p class="eyebrow">Analyse · ${escapeHtml(activePeriodLabel())}</p>
+        <h2>${escapeHtml(getAnalysisHeadline(summary, comparison, concentration, quality))}</h2>
+        <p>${escapeHtml(getAnalysisSubline(summary, pace, concentration, quality))}</p>
+      </div>
+      <div class="analysis-command-score ${quality.score < 75 ? "attention" : "positive"}">
+        <span>Datatillid</span>
+        <strong>${quality.score}%</strong>
+        <small>${quality.label}</small>
+      </div>
+    </section>
+
+    <section class="analysis-visual-grid section">
+      ${renderCashflowBridge(summary)}
+      ${renderSpendingPacePanel(pace)}
+      ${renderConcentrationPanel(concentration)}
+      ${renderCrosscheckPanel(crosscheck)}
+      ${renderRecurringCommitmentPanel(recurring)}
+      ${renderMoverPanel(movers)}
+      ${renderAnalysisQualityPanel(quality)}
+    </section>
+
+    <section class="dashboard-main-grid section">
+      <div class="panel pad visual-panel">
+        <div class="section-heading clean-heading"><div><h2>Udvikling</h2><p>Forbrug måned for måned — klik på en måned for at skifte periode.</p></div></div>
+        ${renderDashboardTrend(ui.month)}
+      </div>
+      <div class="panel pad visual-panel">
+        <div class="section-heading clean-heading"><div><h2>Hvor pengene går hen</h2><p>Topkategorier og modtagere i perioden.</p></div></div>
+        ${renderCategoryBreakdownCompact(categories.slice(0, 5))}
+        <div style="height:18px"></div>
+        ${renderMerchantReportList(merchants.slice(0, 5))}
+      </div>
+    </section>
+  `;
+}
+
+function getAnalysisHeadline(summary, comparison, concentration, quality) {
+  if (quality.score < 65) return "Tallene kræver oprydning før de kan bruges hårdt";
+  if (summary.savings < 0) return "Perioden bruger mere end der kommer ind";
+  if (comparison.previous.expenses && comparison.momExpenseDelta > summary.expenses * 0.18) return "Forbruget er markant højere end forrige periode";
+  if (concentration.topCategoryShare > 0.35) return `${concentration.topCategoryName} driver perioden`;
+  return "Perioden har positivt cashflow og brugbart overblik";
+}
+
+function getAnalysisSubline(summary, pace, concentration, quality) {
+  if (quality.score < 65) return `${quality.openItems} åbne oprydningspunkter kan stadig flytte kategorier, relationer eller timing.`;
+  if (summary.savings < 0) return `Der mangler ${formatCurrency(Math.abs(summary.savings))} efter forbrug. Dagligt forbrug ligger på ${formatCurrency(pace.dailyAverage)}.`;
+  return `${formatCurrency(summary.savings)} tilbage efter forbrug. Største koncentration er ${concentration.topCategoryName || "ingen kategori"} med ${formatPercent(concentration.topCategoryShare)} af forbruget.`;
+}
+
+function getAnalysisQuality(periodRows) {
+  const checklist = getCleanupChecklistItems(periodRows);
+  const uncertain = getUncertainCategoryGroupsForRows(periodRows).length;
+  const transferMatches = findTransferMatchesForRows(periodRows).length;
+  const movedPending = periodRows.filter((tx) => getEconomicPeriodInfo(tx).moved && !tx.periodLocked).length;
+  const score = Math.max(0, Math.min(100, Math.round((1 - checklist.length / Math.max(1, periodRows.length)) * 100)));
+  const label = score >= 85 ? "Stærk" : score >= 70 ? "Brugbar" : score >= 55 ? "Kræver review" : "Usikker";
+  return { score, label, openItems: checklist.length, uncertain, transferMatches, movedPending };
+}
+
+function getAnalysisPace(summary, comparison) {
+  const { from, to } = activeDateRange();
+  const days = Math.max(1, Math.abs(daysBetween(to, from)) + 1);
+  const dailyAverage = summary.expenses / days;
+  const dailyIncome = summary.income / days;
+  const dailySavings = summary.savings / days;
+  const monthlyRunRate = dailyAverage * 30.4;
+  const previousDaily = comparison.previous?.expenses ? comparison.previous.expenses / days : 0;
+  return { days, dailyAverage, dailyIncome, dailySavings, monthlyRunRate, previousDaily, dailyDelta: previousDaily ? dailyAverage - previousDaily : 0 };
+}
+
+function getAnalysisConcentration(categories, merchants, summary) {
+  const topCategory = categories[0];
+  const topMerchant = merchants[0];
+  return {
+    topCategoryName: topCategory?.category?.name || "Ingen",
+    topCategoryId: topCategory?.category?.id || "",
+    topCategoryTotal: topCategory?.total || 0,
+    topCategoryShare: summary.expenses ? (topCategory?.total || 0) / summary.expenses : 0,
+    topMerchantName: topMerchant?.name || "Ingen",
+    topMerchantTotal: topMerchant?.total || 0,
+    topMerchantShare: summary.expenses ? (topMerchant?.total || 0) / summary.expenses : 0,
+  };
+}
+
+function getRecurringCommitmentRows() {
+  return getRecurringRows()
+    .map((row) => ({ ...row, monthlyEstimate: row.months.length ? row.total / row.months.length : row.total }))
+    .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate || b.total - a.total);
+}
+
+function getCrosscheckSummary(periodRows, reportingRows) {
+  const autoMatches = findAutoSafeTransferMatches(periodRows);
+  const excludedRows = reportingRows.filter((tx) => tx.autoExcludedTransfer || isInternalFundingInflow(tx));
+  const excludedIds = new Set(excludedRows.map((tx) => tx.id));
+  const internalInflows = excludedRows.filter(isInternalFundingInflow);
+  const amount = autoMatches.reduce((sum, match) => sum + Number(match.amount || 0), 0);
+  const positive = excludedRows.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const negative = excludedRows.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+  return { autoMatches, excludedIds, excludedRows, internalInflows, amount, positive, negative };
+}
+
+function renderCashflowBridge(summary) {
+  const max = Math.max(1, summary.income, summary.expenses, Math.abs(summary.savings));
+  return `
+    <article class="analysis-card analysis-card-wide">
+      <div class="analysis-card-head"><span>Cashflow</span><h3>Ind → forbrug → tilbage</h3></div>
+      <div class="cashflow-bridge">
+        ${renderBridgeBar("Ind", summary.income, max, "income")}
+        ${renderBridgeBar("Forbrug", summary.expenses, max, "expense")}
+        ${renderBridgeBar("Tilbage", summary.savings, max, summary.savings >= 0 ? "positive" : "negative")}
+      </div>
+      <p>${summary.income ? `${formatPercent(summary.savingsRate)} af indtægten er tilbage efter forbrug.` : "Der mangler indkomst i perioden."}</p>
+    </article>
+  `;
+}
+
+function renderBridgeBar(label, value, max, tone) {
+  const width = Math.max(4, Math.round((Math.abs(Number(value || 0)) / max) * 100));
+  return `<div class="bridge-row ${escapeHtml(tone)}"><span>${escapeHtml(label)}</span><i><b style="--width:${width}%"></b></i><strong>${formatCurrency(value)}</strong></div>`;
+}
+
+function renderSpendingPacePanel(pace) {
+  const tone = pace.dailyDelta <= 0 ? "positive" : "negative";
+  return `
+    <article class="analysis-card">
+      <div class="analysis-card-head"><span>Tempo</span><h3>${formatCurrency(pace.dailyAverage)} / dag</h3></div>
+      <p>Run-rate svarer til ${formatCurrency(pace.monthlyRunRate)} pr. 30 dage.</p>
+      <div class="analysis-mini-metric ${tone}"><strong>${pace.previousDaily ? `${pace.dailyDelta >= 0 ? "+" : ""}${formatCurrency(pace.dailyDelta)}` : "—"}</strong><small>mod forrige periode pr. dag</small></div>
+    </article>
+  `;
+}
+
+function renderConcentrationPanel(concentration) {
+  return `
+    <article class="analysis-card">
+      <div class="analysis-card-head"><span>Koncentration</span><h3>${formatPercent(concentration.topCategoryShare)}</h3></div>
+      <p>${escapeHtml(concentration.topCategoryName)} er største kategori.</p>
+      <div class="concentration-bars">
+        <button type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(concentration.topCategoryId)}"><span>Kategori</span><i><b style="--width:${Math.round(concentration.topCategoryShare * 100)}%"></b></i><strong>${formatCurrency(concentration.topCategoryTotal)}</strong></button>
+        <button type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(concentration.topMerchantName)}"><span>Modtager</span><i><b style="--width:${Math.round(concentration.topMerchantShare * 100)}%"></b></i><strong>${formatCurrency(concentration.topMerchantTotal)}</strong></button>
+      </div>
+    </article>
+  `;
+}
+
+function renderCrosscheckPanel(crosscheck) {
+  const top = crosscheck.autoMatches.slice(0, 3);
+  return `
+    <article class="analysis-card crosscheck-card">
+      <div class="analysis-card-head"><span>Krydstjek</span><h3>${crosscheck.excludedIds.size} poster</h3></div>
+      <p>${formatCurrency(crosscheck.positive)} i interne indbetalinger og ${formatCurrency(crosscheck.negative)} i modposter holdes ude af nøgletallene.</p>
+      <div class="analysis-list-mini">
+        ${top.map((match) => `<button type="button" data-action="open-drilldown" data-drilldown="auto-match" data-id="${escapeHtml(match.id)}"><span>${escapeHtml(match.outTx.description)} ↔ ${escapeHtml(match.inTx.description)}</span><strong>${formatCurrency(match.amount)}</strong></button>`).join("") || `<span class="helper">Ingen krydstjekkede flytninger i perioden.</span>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderRecurringCommitmentPanel(rows) {
+  const total = rows.slice(0, 8).reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
+  return `
+    <article class="analysis-card">
+      <div class="analysis-card-head"><span>Faste mønstre</span><h3>${formatCurrency(total)}</h3></div>
+      <p>Estimeret månedlig bund fra de tydeligste gentagne udgifter.</p>
+      <div class="analysis-list-mini">
+        ${rows.slice(0, 3).map((row) => `<button type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}"><span>${escapeHtml(row.name)}</span><strong>${formatCurrency(row.monthlyEstimate)}</strong></button>`).join("") || `<span class="helper">Ikke nok historik endnu.</span>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderMoverPanel(rows) {
+  return `
+    <article class="analysis-card">
+      <div class="analysis-card-head"><span>Ændringer</span><h3>${rows[0] ? `${rows[0].delta >= 0 ? "+" : ""}${formatCurrency(rows[0].delta)}` : "—"}</h3></div>
+      <p>${rows[0] ? `${rows[0].category.name} flytter sig mest mod forrige periode.` : "Der mangler sammenlignelige perioder."}</p>
+      <div class="analysis-list-mini mover-mini-list">
+        ${rows.slice(0, 3).map((row) => `<button class="${row.delta <= 0 ? "positive" : "negative"}" type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(row.category.id)}"><span>${escapeHtml(row.category.name)}</span><strong>${row.delta >= 0 ? "+" : ""}${formatCurrency(row.delta)}</strong></button>`).join("") || `<span class="helper">Ingen store ændringer.</span>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderAnalysisQualityPanel(quality) {
+  return `
+    <article class="analysis-card">
+      <div class="analysis-card-head"><span>Datakvalitet</span><h3>${quality.score}%</h3></div>
+      <p>${quality.openItems} åbne tjekpunkter: ${quality.uncertain} kategori-grupper, ${quality.transferMatches} konto-match og ${quality.movedPending} månedsskifte.</p>
+      <button class="button ghost" type="button" data-nav="oprydning">Ryd op</button>
+    </article>
+  `;
+}
+
+function renderInsightTile(label, value, text, kind = "") {
+  return `<div class="insight-tile ${kind}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(text)}</small></div>`;
+}
+
+function renderExpenseReport() {
+  const categories = getPeriodCategoryReportRows();
+  const merchants = getPeriodMerchantReportRows().slice(0, 12);
+  const largest = getReportTransactions({ onlyExpenses: true }).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 10);
+  const total = categories.reduce((sum, row) => sum + row.total, 0);
+  return `
+    <section class="metric-band section" aria-label="Udgiftsrapport">
+      <div class="metric negative"><span>Reelt forbrug</span><strong>${formatCurrency(total)}</strong><small>Ekskl. interne flytninger</small></div>
+      <div class="metric"><span>Kategorier</span><strong>${categories.length}</strong><small>Med udgifter i perioden</small></div>
+      <div class="metric"><span>Største kategori</span><strong>${escapeHtml(categories[0]?.category.name || "Ingen")}</strong><small>${categories[0] ? formatCurrency(categories[0].total) : "Ingen data"}</small></div>
+      <div class="metric"><span>Største modtager</span><strong>${escapeHtml(merchants[0]?.name || "Ingen")}</strong><small>${merchants[0] ? formatCurrency(merchants[0].total) : "Ingen data"}</small></div>
+    </section>
+    <section class="section workspace-grid">
+      <div class="panel pad">
+        <div class="section-heading"><div><h2>Kategorier</h2><p>Klik på en kategori for at se modtagere og posteringer.</p></div></div>
+        ${renderCategoryReportTable(categories)}
+      </div>
+      <div class="panel pad">
+        <div class="section-heading"><div><h2>Modtagere</h2><p>Topsteder på tværs af kategorier.</p></div></div>
+        ${renderMerchantReportList(merchants)}
+      </div>
+    </section>
+    <section class="section panel">
+      <div class="panel-header"><div><h2>Største posteringer</h2><p>Klik på en postering for hurtig redigering.</p></div></div>
+      ${renderTransactionTable(largest, { compact: true })}
+    </section>
+  `;
+}
+
+function renderCategoryReportTable(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen udgifter</strong><span>Der er ingen reelle udgifter med de valgte filtre.</span></div>`;
+  const max = Math.max(...rows.map((row) => row.total));
+  return `
+    <div class="breakdown-list report-list">
+      ${rows.map((row) => {
+        const pct = max ? Math.max(4, Math.round((row.total / max) * 100)) : 0;
+        return `
+          <button class="report-row" type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(row.category.id)}">
+            <span><strong>${escapeHtml(row.category.name)}</strong><small>${row.count} postering${row.count === 1 ? "" : "er"}</small></span>
+            <span class="report-row-value">${formatCurrency(row.total)}</span>
+            <span class="progress"><span style="--width: ${pct}%; --bar-color: ${escapeHtml(row.category.color)}"></span></span>
+          </button>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderMerchantReportList(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen modtagere</strong><span>Der er ingen modtagere at vise.</span></div>`;
+  return `
+    <div class="account-list">
+      ${rows.map((row) => `
+        <button class="list-row clickable-row" type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}">
+          <div><strong>${escapeHtml(row.name)}</strong><br /><small>${row.count} postering${row.count === 1 ? "" : "er"}</small></div>
+          <strong>${formatCurrency(row.total)}</strong>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderTrendReport() {
+  const rows = getMonthlySeries(12);
+  return `
+    <section class="section panel pad visual-panel">
+      <div class="section-heading clean-heading"><div><h2>Udvikling måned for måned</h2><p>MoM viser ændring mod måneden før. YoY viser ændring mod samme måned året før.</p></div></div>
+      ${renderDashboardTrend(ui.month)}
+      <div class="table-wrap" style="margin-top:18px;">
+        <table>
+          <thead><tr><th>Måned</th><th>Ind</th><th>Ud</th><th>Tilbage</th><th>MoM</th><th>YoY</th></tr></thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td><button class="link-button" type="button" data-month-jump="${escapeHtml(row.month)}">${escapeHtml(monthLabel(row.month))}</button></td>
+                <td class="amount amount-positive">${formatCurrency(row.income)}</td>
+                <td class="amount amount-negative">${formatCurrency(row.expenses)}</td>
+                <td class="amount ${row.savings >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(row.savings)}</td>
+                <td class="amount ${row.mom <= 0 ? "amount-positive" : "amount-negative"}">${row.previousExpenses ? `${row.mom >= 0 ? "+" : ""}${formatCurrency(row.mom)}` : "—"}</td>
+                <td class="amount ${row.yoy <= 0 ? "amount-positive" : "amount-negative"}">${row.lastYearExpenses ? `${row.yoy >= 0 ? "+" : ""}${formatCurrency(row.yoy)}` : "—"}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderMerchantsDeepReport() {
+  const rows = getPeriodMerchantReportRows().slice(0, 25);
+  return `
+    <section class="section panel pad">
+      <div class="section-heading clean-heading"><div><h2>Modtagere og steder</h2><p>Hvor pengene oftest ender i ${escapeHtml(activePeriodLabel())}.</p></div></div>
+      ${renderMerchantReportList(rows)}
+    </section>
+  `;
+}
+
+function renderRecurringReport() {
+  const rows = getRecurringRows();
+  if (!rows.length) return `<section class="section panel pad"><div class="empty-state"><strong>Ingen faste mønstre endnu</strong><span>Der skal flere måneder til for at finde gentagne udgifter.</span></div></section>`;
+  return `
+    <section class="section panel pad">
+      <div class="section-heading clean-heading"><div><h2>Mulige faste udgifter</h2><p>Gentagne modtagere på tværs af måneder — nyttigt til abonnementer, regninger og budget.</p></div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Modtager</th><th>Måneder</th><th>Antal</th><th>Gns.</th><th>Senest</th><th>I alt</th></tr></thead>
+          <tbody>
+            ${rows.slice(0, 30).map((row) => `
+              <tr>
+                <td><button class="link-button" type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button></td>
+                <td>${row.months.length}</td>
+                <td>${row.count}</td>
+                <td class="amount amount-negative">${formatCurrency(row.average)}</td>
+                <td>${escapeHtml(monthLabel(row.latestMonth))}</td>
+                <td class="amount amount-negative">${formatCurrency(row.total)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function getMonthlySeries(count = 12) {
+  return lastMonths(ui.month, count).map((month) => {
+    const current = getMonthlySummary(month);
+    const previous = getMonthlySummary(shiftMonth(month, -1));
+    const lastYear = getMonthlySummary(shiftMonth(month, -12));
+    return {
+      month,
+      ...current,
+      previousExpenses: previous.expenses,
+      lastYearExpenses: lastYear.expenses,
+      mom: current.expenses - previous.expenses,
+      yoy: current.expenses - lastYear.expenses,
+    };
+  });
+}
+
+function getRecurringRows() {
+  const grouped = new Map();
+  for (const tx of state.transactions) {
+    const category = categoryById(tx.categoryId);
+    if (!(tx.amount < 0 && category?.kind !== "transfer")) continue;
+    const name = merchantName(tx.description);
+    const month = toMonthKey(tx.date);
+    const entry = grouped.get(name) || { name, total: 0, count: 0, months: new Set(), latestMonth: month };
+    entry.total += Math.abs(Number(tx.amount || 0));
+    entry.count += 1;
+    entry.months.add(month);
+    if (month > entry.latestMonth) entry.latestMonth = month;
+    grouped.set(name, entry);
+  }
+  return Array.from(grouped.values())
+    .map((row) => ({ ...row, months: Array.from(row.months).sort(), average: row.total / row.count }))
+    .filter((row) => row.months.length >= 2 || row.count >= 3)
+    .sort((a, b) => b.months.length - a.months.length || b.total - a.total);
+}
+
+function renderAccountsReport() {
+  const rows = state.accounts.map((account) => ({ account, ...getAccountPeriodSummary(account.id) }));
+  return `
+    <section class="section panel pad">
+      <div class="section-heading"><div><h2>Kontorapport</h2><p>Se ind, ud og interne flytninger pr. konto for ${escapeHtml(activePeriodLabel())}. Klik på en konto for posteringer.</p></div></div>
+      <div class="account-list">
+        ${rows.map((row) => `
+          <button class="list-row clickable-row" type="button" data-action="open-drilldown" data-drilldown="account" data-id="${row.account.id}">
+            <div><strong>${escapeHtml(row.account.name)}</strong><br /><small>${escapeHtml(row.account.type)} · ${transactionCountForAccount(row.account.id)} poster i alt</small></div>
+            <div class="amount"><span class="amount-positive">${formatCurrency(row.income)}</span><br /><span class="amount-negative">${formatCurrency(row.expenses)}</span><br /><small>Flytning ${formatCurrency(row.transfers)}</small></div>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderTransfersReport() {
+  const matched = getMatchedTransferPairsForRows(getPeriodTransactions());
+  const candidates = findTransferMatchesForRows(getPeriodTransactions());
+  const movements = getReportTransactions({ onlyTransfers: true });
+  return `
+    <section class="metric-band section" aria-label="Overførselsrapport">
+      <div class="metric positive"><span>Afstemte par</span><strong>${matched.length}</strong><small>Konto-til-konto</small></div>
+      <div class="metric"><span>Kandidat-match</span><strong>${candidates.length}</strong><small>Kræver evt. afstemning</small></div>
+      <div class="metric"><span>Flytninger</span><strong>${movements.length}</strong><small>Opsparing, investering og interne</small></div>
+      <div class="metric"><span>Netto flytning</span><strong>${formatCurrency(movements.reduce((sum, tx) => sum + Number(tx.amount || 0), 0))}</strong><small>På valgte filtre</small></div>
+    </section>
+    <section class="section workspace-grid">
+      <div class="panel pad"><div class="section-heading"><div><h2>Afstemte overførsler</h2><p>Par der ikke tæller som forbrug.</p></div></div>${renderMatchedTransfers(matched)}</div>
+      <div class="panel pad"><div class="section-heading"><div><h2>Kandidat-match</h2><p>Match der kan afstemmes.</p></div><button class="button primary" type="button" data-action="apply-transfer-matches">Afstem sikre</button></div>${renderTransferMatches(candidates)}</div>
+    </section>
+  `;
+}
+
+function renderMatchedTransfers(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen afstemte par</strong><span>Afstem kontooverførsler i Oprydning.</span></div>`;
+  return `<div class="account-list">${rows.map((pair) => `<button class="list-row clickable-row" type="button" data-action="open-drilldown" data-drilldown="match" data-id="${pair.groupId}"><div><strong>${escapeHtml(pair.from)} → ${escapeHtml(pair.to)}</strong><br /><small>${formatDate(pair.date)} · ${pair.count} poster</small></div><strong>${formatCurrency(pair.amount)}</strong></button>`).join("")}</div>`;
+}
+
+function renderCleanupReport() {
+  const cleanup = getCleanupStatusForRows(getPeriodTransactions());
+  return `
+    <section class="metric-band section">
+      <div class="metric"><span>Konto-match</span><strong>${cleanup.transferMatchCount}</strong><small>Kan afstemmes</small></div>
+      <div class="metric"><span>Afstemte par</span><strong>${cleanup.matchedInternalCount}</strong><small>Holdes ude af statistik</small></div>
+      <div class="metric negative"><span>Ukategoriseret</span><strong>${cleanup.unknownCount}</strong><small>Bør ryddes op</small></div>
+      <div class="metric"><span>Mulige flytninger</span><strong>${cleanup.movementCount}</strong><small>Opsparing/investering/interne</small></div>
+    </section>
+    <section class="section panel pad">
+      <div class="section-heading"><div><h2>Oprydningsarbejdsliste</h2><p>Gå til den fulde oprydningsside for bulk-handlinger.</p></div><button class="button primary" type="button" data-nav="oprydning">Åbn oprydning</button></div>
+      ${renderNeedsCategoryGroups(getNeedsCategoryGroupsForRows(getPeriodTransactions()).slice(0, 12))}
+    </section>
+  `;
+}
+
+function renderNextBestActions(cleanup) {
+  const actions = [];
+  if (cleanup.transferMatchCount) actions.push({ title: "Afstem kontooverførsler", text: `${cleanup.transferMatchCount} match kan fjernes fra statistik.`, action: "oprydning", primary: true });
+  if (cleanup.movementCount) actions.push({ title: "Marker opsparing/investering", text: `${cleanup.movementCount} posteringer ligner pengeflytninger.`, action: "oprydning" });
+  if (cleanup.unknownCount) actions.push({ title: "Ryd “Andet”", text: `${cleanup.unknownCount} posteringer mangler god kategori.`, action: "oprydning" });
+  if (!actions.length) actions.push({ title: "Data ser ren ud", text: "Der er ingen oplagte oprydningsopgaver i måneden.", action: "rapporter" });
+  return `
+    <div class="account-list">
+      ${actions.map((item) => `
+        <button class="list-row clickable-row" type="button" data-nav="${item.action}">
+          <div><strong>${escapeHtml(item.title)}</strong><br /><small>${escapeHtml(item.text)}</small></div>
+          <span class="pill ${item.primary ? "" : "muted"}">${item.primary ? "Start her" : "Åbn"}</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderInsightList(month) {
+  const insights = getMonthlyInsights(month);
+  if (!insights.length) return `<div class="empty-state"><strong>Ikke nok data</strong><span>Importer flere posteringer eller måneder for flere indsigter.</span></div>`;
+  return `
+    <div class="account-list">
+      ${insights.map((insight) => `
+        <button class="list-row clickable-row" type="button" data-action="open-report" data-report="${escapeHtml(insight.report || "udgifter")}">
+          <div><strong>${escapeHtml(insight.title)}</strong><br /><small>${escapeHtml(insight.text)}</small></div>
+          <span class="pill ${insight.kind === "warning" ? "muted" : ""}">${escapeHtml(insight.badge)}</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function getMonthlyInsights(month) {
+  const insights = [];
+  const summary = getMonthlySummary(month);
+  const categories = getCategoryReportRows(month, "all");
+  const merchants = getMerchantReportRows(month, "", "all");
+  const transfers = getTransactionsForMonth(month).filter((tx) => categoryById(tx.categoryId)?.kind === "transfer");
+  const largest = getExpenseTransactionsForMonth(month)[0];
+  const previous = getMonthlySummary(shiftMonth(month, -1));
+  if (categories[0]) insights.push({ title: `Største kategori er ${categories[0].category.name}`, text: `${formatCurrency(categories[0].total)} fordelt på ${categories[0].count} posteringer.`, badge: "Kategori", report: "udgifter" });
+  if (merchants[0]) insights.push({ title: `Topmodtager er ${merchants[0].name}`, text: `${formatCurrency(merchants[0].total)} fordelt på ${merchants[0].count} posteringer.`, badge: "Modtager", report: "udgifter" });
+  if (largest) insights.push({ title: "Største enkeltudgift", text: `${largest.description} på ${formatCurrency(Math.abs(largest.amount))}.`, badge: "Post", report: "udgifter" });
+  if (transfers.length) insights.push({ title: "Pengeflytninger holdes ude", text: `${transfers.length} poster er markeret som intern/opsparing/investering/udlæg.`, badge: "Rent forbrug", report: "overfoersler" });
+  if (previous.expenses > 0) {
+    const diff = summary.expenses - previous.expenses;
+    insights.push({ title: diff >= 0 ? "Forbruget er højere end sidste måned" : "Forbruget er lavere end sidste måned", text: `${formatCurrency(Math.abs(diff))} ${diff >= 0 ? "mere" : "mindre"} end ${monthLabel(shiftMonth(month, -1))}.`, badge: "Trend", report: "udgifter", kind: diff > 0 ? "warning" : "info" });
+  }
+  return insights.slice(0, 5);
+}
+
+function renderExpensesView() {
+  const periodRows = getPeriodTransactions();
+  const reportingRows = getPeriodReportingTransactions();
+  const summary = getExpenseSummaryForRows(reportingRows);
+  const largest = getExpenseTransactionsForRows(reportingRows).slice(0, 12);
+  return `
+    <section class="metric-band" aria-label="Udgifter for ${escapeHtml(activePeriodLabel())}">
+      <div class="metric negative">
+        <span>Udgifter i alt</span>
+        <strong>${formatCurrency(summary.expenses)}</strong>
+        <small>${summary.count} udgift${summary.count === 1 ? "" : "er"}</small>
+      </div>
+      <div class="metric ${summary.delta <= 0 ? "positive" : "negative"}">
+        <span>Mod forrige periode</span>
+        <strong>${formatCurrency(summary.delta)}</strong>
+        <small>${summary.delta <= 0 ? "Lavere eller uændret forbrug" : "Højere forbrug"}</small>
+      </div>
+      <div class="metric negative">
+        <span>Dagligt snit</span>
+        <strong>${formatCurrency(summary.dailyAverage)}</strong>
+        <small>Baseret på ${summary.dayBasis} dag${summary.dayBasis === 1 ? "" : "e"}</small>
+      </div>
+      <div class="metric">
+        <span>Største kategori</span>
+        <strong>${escapeHtml(summary.biggestCategory?.name || "Ingen")}</strong>
+        <small>${summary.biggestCategory ? formatCurrency(summary.biggestCategory.total) : "Ingen udgifter endnu"}</small>
+      </div>
+    </section>
+
+    <section class="section workspace-grid">
+      <div class="panel pad">
+        <div class="section-heading">
+          <div>
+            <h2>Forbrug pr. kategori</h2>
+            <p>Det vigtigste overblik: hvor pengene fordeler sig.</p>
+          </div>
+        </div>
+        ${renderCategoryBreakdown(reportingRows)}
+      </div>
+      <div class="panel pad">
+        <div class="section-heading">
+          <div>
+            <h2>Steder og modtagere</h2>
+            <p>Samlet efter tekst på posteringen.</p>
+          </div>
+        </div>
+        ${renderMerchantBreakdown(reportingRows)}
+      </div>
+    </section>
+
+    <section class="section panel pad">
+      <div class="section-heading">
+        <div>
+          <h2>Noter og relationer</h2>
+          <p>Brug noter til at forbinde udlæg, refusioner og overførsler, som ikke fremgår tydeligt af CSV-filen.</p>
+        </div>
+        <button class="button ghost" type="button" data-action="apply-relations-from-notes">Find relationer fra noter</button>
+      </div>
+      ${renderRelationInsights(periodRows)}
+    </section>
+
+    <section class="section workspace-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Største udgifter</h2>
+            <p>De dyreste poster i ${escapeHtml(activePeriodLabel())}.</p>
+          </div>
+          <button class="button ghost" type="button" data-nav="transaktioner">Ret kategorier</button>
+        </div>
+        ${renderTransactionTable(largest, { compact: true })}
+      </div>
+      <div class="panel pad">
+        <div class="section-heading">
+          <div>
+            <h2>Gentagne udgifter</h2>
+            <p>Poster der går igen på tværs af måneder.</p>
+          </div>
+        </div>
+        ${renderRecurringCandidates()}
+      </div>
+    </section>
+  `;
+}
+
+function cleanupQualityScore(allChecklist, periodRows) {
+  if (!periodRows.length) return 100;
+  return Math.max(0, Math.min(100, Math.round((1 - allChecklist.length / Math.max(1, periodRows.length)) * 100)));
+}
+
+function renderSmartCleanupPanel({ periodRows, allChecklist, overlapSummary, transferMatches, movementRows }) {
+  const highTransferCount = findAutoSafeTransferMatches(periodRows).length;
+  const highMovementCount = getAutoSafeMoneyMovementCandidates(periodRows).length;
+  const categoryBatches = getCategorySuggestionBatches(periodRows).slice(0, 5);
+  const periodGroups = getPeriodizationApprovalGroups().slice(0, 5);
+  const safeCategoryCount = getSafeCategorySuggestionGroups(periodRows).length;
+  const hasWork = overlapSummary.removableCount || highTransferCount || highMovementCount || categoryBatches.length || periodGroups.length;
+  if (!hasWork && !ui.undo) return "";
+  return `
+    <section class="section panel pad smart-cleanup-panel">
+      <div class="section-heading clean-heading">
+        <div>
+          <h2>Smart oprydning</h2>
+          <p>Tag de sikre batches først. Alle bulk-handlinger kan fortrydes i denne session.</p>
+        </div>
+        <div class="actions">
+          ${ui.undo ? `<button class="button ghost" type="button" data-action="undo-last-bulk">Fortryd: ${escapeHtml(ui.undo.label)}</button>` : ""}
+          <button class="button primary" type="button" data-action="apply-smart-cleanup">Kør sikre batches</button>
+        </div>
+      </div>
+      <div class="smart-cleanup-grid">
+        <div class="smart-cleanup-card ${highTransferCount ? "attention" : "done"}">
+          <span>Konto-match</span>
+          <strong>${highTransferCount}</strong>
+          <p>Afstemmer kun par, der allerede er transfer-kategorier og derfor ikke ændrer nøgletal.</p>
+          <button class="button ghost" type="button" data-action="apply-auto-safe-transfer-matches" ${highTransferCount ? "" : "disabled"}>Afstem uden talændring</button>
+        </div>
+        <div class="smart-cleanup-card ${safeCategoryCount ? "attention" : "done"}">
+          <span>Kategorier</span>
+          <strong>${safeCategoryCount}</strong>
+          <p>Høj-sikkerhed grupper kan valideres og gemmes som regler.</p>
+          <button class="button ghost" type="button" data-action="apply-safe-category-suggestions" ${safeCategoryCount ? "" : "disabled"}>Anvend sikre</button>
+        </div>
+        <div class="smart-cleanup-card ${highMovementCount ? "attention" : "done"}">
+          <span>Flytninger</span>
+          <strong>${highMovementCount}</strong>
+          <p>Anvender kun forslag, der ikke flytter poster ind/ud af forbrug eller indkomst.</p>
+          <button class="button ghost" type="button" data-action="apply-auto-safe-money-movements" ${highMovementCount ? "" : "disabled"}>Anvend uden talændring</button>
+        </div>
+        <div class="smart-cleanup-card ${overlapSummary.removableCount ? "attention" : "done"}">
+          <span>Dubletter</span>
+          <strong>${overlapSummary.removableCount}</strong>
+          <p>Overlap mellem CSV og bank-sync fjernes uden at røre bankdata.</p>
+          <button class="button ghost" type="button" data-action="remove-overlaps" ${overlapSummary.removableCount ? "" : "disabled"}>Fjern overlap</button>
+        </div>
+      </div>
+      ${periodGroups.length ? `
+        <div class="smart-batch-section">
+          <div><strong>Månedsskifte-batches</strong><small>Godkend gentagne periodiseringsforslag pr. mønster.</small></div>
+          <div class="smart-batch-list">
+            ${periodGroups.map((group) => `
+              <button class="smart-batch-row" type="button" data-action="approve-periodization-group" data-group="${escapeHtml(group.hash)}">
+                <span><strong>${escapeHtml(group.title)}</strong><small>${group.count} poster · ${escapeHtml(group.reason)}</small></span>
+                <em>${formatCurrency(group.amount)}</em>
+              </button>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+      ${categoryBatches.length ? `
+        <div class="smart-batch-section">
+          <div><strong>Kategori-batches</strong><small>Anvend samme forslag på mange modtagere.</small></div>
+          <div class="smart-batch-list">
+            ${categoryBatches.map((batch) => `
+              <button class="smart-batch-row" type="button" data-action="apply-category-suggestion-batch" data-category="${escapeHtml(batch.categoryId)}" data-confidence="78">
+                <span><strong>${escapeHtml(batch.categoryName)}</strong><small>${batch.groupCount} grupper · ${batch.txCount} poster · op til ${batch.topMerchants.map(escapeHtml).join(" · ")}</small></span>
+                <em>${formatCurrency(batch.amount)}</em>
+              </button>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderCleanupView() {
+  const periodRows = getPeriodTransactions();
+  const reportingRows = getPeriodReportingTransactions();
+  const allChecklist = getCleanupChecklistItems(periodRows);
+  const checklist = allChecklist.slice(0, 30);
+  const periodPending = allChecklist.filter((item) => item.type === "period").length;
+  const categoryPending = allChecklist.filter((item) => item.type === "category").length;
+  const transferPending = allChecklist.filter((item) => item.type === "transfer" || item.type === "movement").length;
+  const totalImpact = allChecklist.reduce((sum, item) => sum + Math.abs(Number(item.amount || 0)), 0);
+  const qualityScore = cleanupQualityScore(allChecklist, periodRows);
+  const accrualRows = getAccrualSummaryRows();
+  const overlapSummary = findOverlapDuplicates();
+  const transferMatches = findTransferMatchesForRows(periodRows);
+  const movementRows = getMoneyMovementCandidatesForRows(periodRows);
+
+  return `
+    <section class="cleanup-hero" aria-label="Oprydning for ${escapeHtml(activePeriodLabel())}">
+      <div>
+        <p class="eyebrow">Tjek af</p>
+        <h2>${allChecklist.length ? `${allChecklist.length} ting tilbage` : "Alt er afkrydset"}</h2>
+        <p>${allChecklist.length ? "Start med de sikre batches, og brug derefter checklisten til de få beslutninger der kræver menneskeligt blik." : "Der er ingen åbne oprydningspunkter i den valgte periode."}</p>
+      </div>
+      <div class="cleanup-hero-metrics">
+        <span><strong>${qualityScore}%</strong><small>datatillid</small></span>
+        <span><strong>${formatCurrency(totalImpact)}</strong><small>beløb der kan påvirke overblik</small></span>
+        <span><strong>${periodPending}</strong><small>månedsskifte</small></span>
+        <span><strong>${categoryPending}</strong><small>kategorier</small></span>
+        <span><strong>${transferPending}</strong><small>flytninger</small></span>
+      </div>
+    </section>
+
+    ${renderSmartCleanupPanel({ periodRows, allChecklist, overlapSummary, transferMatches, movementRows })}
+
+    <section class="section panel pad cleanup-workbench">
+      <div class="section-heading clean-heading">
+        <div>
+          <h2>Tjek dette først</h2>
+          <p>Godkend forslagene, eller vælg bankdato/nuværende kategori når det er mere korrekt.${allChecklist.length > checklist.length ? ` Viser de ${checklist.length} vigtigste først.` : ""}</p>
+        </div>
+        <div class="actions">
+          <button class="button ghost" type="button" data-action="apply-periodization">Opdatér forslag</button>
+          <button class="button ghost" type="button" data-action="improve-categories">Forbedr automatisk</button>
+        </div>
+      </div>
+      ${renderCleanupChecklist(checklist)}
+    </section>
+
+    <section class="section workspace-grid cleanup-results-grid">
+      <div class="panel pad">
+        <div class="section-heading clean-heading">
+          <div>
+            <h2>Realistisk forbrug efter periodisering</h2>
+            <p>Bruger økonomisk måned og fordeler kvartalsvise boligbetalinger over de seneste tre måneder.</p>
+          </div>
+        </div>
+        ${renderCategoryBreakdown(reportingRows)}
+      </div>
+      <div class="panel pad">
+        <div class="section-heading clean-heading">
+          <div>
+            <h2>Boligposter fordelt over 3 måneder</h2>
+            <p>Realkredit og ejerforening tæller som 1/3 i hver af de forgangne tre måneder.</p>
+          </div>
+        </div>
+        ${renderAccrualSummary(accrualRows)}
+      </div>
+    </section>
+
+    <details class="section panel pad provider-details cleanup-advanced">
+      <summary><strong>Avanceret oprydning</strong><span class="pill muted">brug sjældent</span></summary>
+      <div class="cleanup-advanced-grid">
+        <div>
+          <h3>Overlap</h3>
+          <p class="helper">Beholder bank-sync-posten og fjerner CSV-dubletter.</p>
+          <button class="button ghost" type="button" data-action="remove-overlaps">Fjern ${overlapSummary.removableCount} overlap</button>
+        </div>
+        <div>
+          <h3>Kontooverførsler</h3>
+          <p class="helper">Afstemmer sikre par, så flytninger ikke tæller som forbrug.</p>
+          <button class="button ghost" type="button" data-action="apply-transfer-matches">Afstem ${transferMatches.filter((match) => match.confidence === "high").length} sikre</button>
+        </div>
+        <div>
+          <h3>Opsparing/investering</h3>
+          <p class="helper">Markerer sikre interne flytninger, opsparing og investeringer.</p>
+          <button class="button ghost" type="button" data-action="apply-money-movement-suggestions">Anvend ${movementRows.length} forslag</button>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function getPeriodizationGroupKey(tx, info) {
+  return [info.rule || "manual", merchantName(tx.description), tx.accountId || "", info.reason || ""].join("|");
+}
+
+function getPeriodizationApprovalGroups() {
+  const groups = new Map();
+  const pending = getPeriodizationReviewRows().filter(({ tx, info }) => !tx.periodLocked && info.moved);
+  for (const { tx, info } of pending) {
+    const key = getPeriodizationGroupKey(tx, info);
+    const entry = groups.get(key) || {
+      key,
+      hash: simpleHash(key),
+      title: merchantName(tx.description) || "Månedsskifte",
+      reason: info.reason,
+      count: 0,
+      amount: 0,
+      examples: [],
+    };
+    entry.count += 1;
+    entry.amount += Math.abs(Number(tx.amount || 0));
+    if (entry.examples.length < 2) entry.examples.push(tx.description);
+    groups.set(key, entry);
+  }
+  return Array.from(groups.values()).sort((a, b) => b.amount - a.amount || b.count - a.count || a.title.localeCompare(b.title, "da"));
+}
+
+function approvePeriodizationGroup(groupHash) {
+  let changed = 0;
+  for (const { tx, info } of getPeriodizationReviewRows()) {
+    if (tx.periodLocked || !info.moved) continue;
+    if (simpleHash(getPeriodizationGroupKey(tx, info)) !== groupHash) continue;
+    tx.periodMonth = info.periodMonth;
+    tx.periodDate = info.periodDate;
+    tx.periodRule = info.rule;
+    tx.periodConfidence = 100;
+    tx.periodReason = `Batch-godkendt: ${info.reason}`;
+    tx.periodLocked = true;
+    tx.updatedAt = new Date().toISOString();
+    changed += 1;
+  }
+  return changed;
+}
+
+function getSafeCategorySuggestionGroups(periodRows, minConfidence = 88) {
+  return getUncertainCategoryGroupsForRows(periodRows)
+    .filter((group) => group.suggestion?.categoryId && Number(group.suggestion.confidence || 0) >= minConfidence);
+}
+
+function getCategorySuggestionBatches(periodRows) {
+  const batches = new Map();
+  for (const group of getUncertainCategoryGroupsForRows(periodRows).filter((item) => item.suggestion?.categoryId)) {
+    const categoryId = group.suggestion.categoryId;
+    const category = categoryById(categoryId);
+    const entry = batches.get(categoryId) || { categoryId, categoryName: category?.name || "Kategori", groupCount: 0, txCount: 0, amount: 0, confidence: 100, topMerchants: [] };
+    entry.groupCount += 1;
+    entry.txCount += group.count;
+    entry.amount += group.expenseTotal;
+    entry.confidence = Math.min(entry.confidence, Number(group.suggestion.confidence || 0));
+    if (entry.topMerchants.length < 3) entry.topMerchants.push(group.name);
+    batches.set(categoryId, entry);
+  }
+  return Array.from(batches.values()).sort((a, b) => b.amount - a.amount || b.txCount - a.txCount);
+}
+
+function applyCategorySuggestionBatch(categoryId, minConfidence = 78) {
+  const merchants = new Set(getUncertainCategoryGroupsForRows(getPeriodTransactions())
+    .filter((group) => group.suggestion?.categoryId === categoryId && Number(group.suggestion.confidence || 0) >= minConfidence)
+    .map((group) => group.name));
+  let changed = 0;
+  let rulesCreated = 0;
+  for (const merchant of merchants) {
+    const result = applyCategoryToMerchantGroup(merchant, categoryId);
+    changed += result.changed;
+    if (result.ruleCreated) rulesCreated += 1;
+  }
+  return { changed, rulesCreated, merchantCount: merchants.size };
+}
+
+function applySafeCategorySuggestions(minConfidence = 88) {
+  let changed = 0;
+  let rulesCreated = 0;
+  let merchantCount = 0;
+  const seen = new Set();
+  for (const group of getSafeCategorySuggestionGroups(getPeriodTransactions(), minConfidence)) {
+    if (!group.suggestion?.categoryId || seen.has(group.name)) continue;
+    seen.add(group.name);
+    const result = applyCategoryToMerchantGroup(group.name, group.suggestion.categoryId);
+    changed += result.changed;
+    if (result.ruleCreated) rulesCreated += 1;
+    merchantCount += 1;
+  }
+  return { changed, rulesCreated, merchantCount };
+}
+
+function primaryIncomeAccountId() {
+  return getWealthSettings().primaryCashAccountId || state.accounts.find((account) => /sparekassen|løn|lon/i.test(account.name))?.id || state.accounts[0]?.id || "";
+}
+
+function isInternalFundingAccount(accountId) {
+  if (!accountId || accountId === primaryIncomeAccountId()) return false;
+  const account = accountById(accountId);
+  if (!account) return false;
+  return /(bolig|fælles|faelles|sommerhus|budget|mastercard|depot)/.test(normalize(`${account.name} ${account.type}`));
+}
+
+function isInternalFundingInflow(tx) {
+  return Number(tx?.amount || 0) > 0 && isInternalFundingAccount(tx?.accountId);
+}
+
+function isNoImpactTransferMatch(match) {
+  return categoryById(match.outTx.categoryId)?.kind === "transfer" && categoryById(match.inTx.categoryId)?.kind === "transfer";
+}
+
+function hasInternalFundingText(tx) {
+  const text = normalize(`${tx?.description || ""} ${tx?.note || ""} ${tx?.relationKey || ""} ${accountById(tx?.accountId)?.name || ""}`);
+  if (!text) return false;
+  if (/\b(wolt|netflix|spotify|forsikring|bilforsikring|institution|vuggestue|restaurant|cafe|kaffe|matas|apotek|meny|rema|netto|foetex|føtex|easypark|parkering)\b/.test(text)) return false;
+  return /\b(overforsel|overførsel|overfort|overført|indbetaling|betaling|konto|dankonto|sparkron|sommerhuskonto|faelles|fælles|forbrugskonto|budgetkonto|indlan|indlån|kredit|opsparing|sparekonto|claes)\b/.test(text);
+}
+
+function isAutoExcludableTransferMatch(match) {
+  if (!match || match.confidence !== "high") return false;
+  if (isProtectedIncomeTransaction(match.outTx) || isProtectedIncomeTransaction(match.inTx)) return false;
+  if (isNoImpactTransferMatch(match)) return true;
+  const outKind = categoryById(match.outTx.categoryId)?.kind;
+  const inKind = categoryById(match.inTx.categoryId)?.kind;
+  if (outKind === "income" || inKind === "income") return false;
+  if (match.dayDiff > 1) return false;
+  if (match.amount < 1000) return false;
+  return hasInternalFundingText(match.outTx) && hasInternalFundingText(match.inTx);
+}
+
+function getAutoExcludedTransferIdsForRows(rows) {
+  const ids = new Set(rows.filter(isInternalFundingInflow).map((tx) => tx.id));
+  for (const match of findTransferMatchesForRows(rows).filter(isAutoExcludableTransferMatch)) {
+    ids.add(match.outTx.id);
+    ids.add(match.inTx.id);
+  }
+  return ids;
+}
+
+function findAutoSafeTransferMatches(rows = getPeriodTransactions()) {
+  return findTransferMatchesForRows(rows).filter(isAutoExcludableTransferMatch);
+}
+
+function getAutoSafeMoneyMovementCandidates(rows = getPeriodTransactions()) {
+  return getMoneyMovementCandidatesForRows(rows).filter((tx) => getMoneyMovementSuggestion(tx).confidence === "high" && categoryById(tx.categoryId)?.kind === "transfer");
+}
+
+function applyHighConfidenceTransferMatches({ noImpactOnly = false } = {}) {
+  const matches = (noImpactOnly ? findAutoSafeTransferMatches(getPeriodTransactions()) : findTransferMatchesForRows(getPeriodTransactions()).filter((match) => match.confidence === "high"));
+  let changed = 0;
+  for (const match of matches) {
+    if (applyInternalTransferMatch(match.outTx, match.inTx)) changed += 1;
+  }
+  return changed;
+}
+
+function applyHighConfidenceMoneyMovementSuggestions({ noImpactOnly = false } = {}) {
+  let changed = 0;
+  const rows = noImpactOnly ? getAutoSafeMoneyMovementCandidates(getPeriodTransactions()) : getMoneyMovementCandidatesForRows(getPeriodTransactions());
+  for (const tx of rows) {
+    const suggestion = getMoneyMovementSuggestion(tx);
+    if (suggestion.confidence !== "high") continue;
+    if (applyCategoryToTransaction(tx.id, suggestion.categoryId, { relationType: suggestion.relationType, relationKey: categoryById(suggestion.categoryId)?.name })) changed += 1;
+  }
+  return changed;
+}
+
+function captureUndoSnapshot(label) {
+  return { label, stateJson: JSON.stringify(state), at: new Date().toISOString() };
+}
+
+function commitUndoSnapshot(snapshot, changed) {
+  if (changed) ui.undo = snapshot;
+}
+
+function getCleanupChecklistItems(periodRows) {
+  const items = [];
+  const overlapSummary = findOverlapDuplicates();
+  if (overlapSummary.removableCount > 0) {
+    items.push({
+      type: "overlap",
+      tone: "danger",
+      title: "Fjern dubletter fra CSV og bank-sync",
+      text: `${overlapSummary.removableCount} overlap fundet i hele datasættet. Bank-sync beholdes som kilde.`,
+      amount: 0,
+      primary: { action: "remove-overlaps", label: "✓ Fjern overlap" },
+    });
+  }
+
+  const periodRowsPending = getPeriodizationReviewRows()
+    .filter(({ tx, info }) => !tx.periodLocked && info.moved);
+  for (const { tx, info } of periodRowsPending) {
+    items.push({
+      type: "period",
+      tone: "attention",
+      title: "Godkend økonomisk måned",
+      text: `${tx.description} · ${formatDate(tx.date)} → ${monthLabel(info.periodMonth)}. ${info.reason}`,
+      amount: tx.amount,
+      meta: accountById(tx.accountId)?.name || "Ukendt konto",
+      primary: { action: "period-use-suggestion", label: "✓ Godkend", data: { id: tx.id } },
+      secondary: { action: "period-use-bank", label: "Brug bankdato", data: { id: tx.id } },
+    });
+  }
+
+  const uncertainGroups = getUncertainCategoryGroupsForRows(periodRows);
+  for (const group of uncertainGroups) {
+    const suggestion = group.suggestion?.categoryId ? categoryById(group.suggestion.categoryId) : null;
+    const current = categoryById(group.currentCategoryId);
+    const canApproveCurrent = current && current.id !== fallbackCategoryId();
+    items.push({
+      type: "category",
+      tone: "attention",
+      title: group.name,
+      text: suggestion
+        ? `Foreslået: ${suggestion.name}. Nuværende: ${current?.name || "Ukendt"}. ${group.count} postering${group.count === 1 ? "" : "er"}.`
+        : `Ingen sikkert forslag. Nuværende: ${current?.name || "Ukendt"}. ${group.count} postering${group.count === 1 ? "" : "er"}.`,
+      amount: group.expenseTotal,
+      meta: group.examples[0] || "Kategori skal valideres",
+      primary: suggestion
+        ? { action: "bulk-category-group", label: `✓ ${suggestion.name}`, data: { merchant: group.name, category: suggestion.id } }
+        : canApproveCurrent
+          ? { action: "validate-current-category-group", label: "✓ Nuværende er korrekt", data: { merchant: group.name } }
+          : { action: "open-drilldown", label: "Åbn", data: { drilldown: "merchant", id: group.name } },
+      secondary: suggestion && canApproveCurrent
+        ? { action: "validate-current-category-group", label: "Nuværende er korrekt", data: { merchant: group.name } }
+        : null,
+    });
+  }
+
+  const transferMatches = findTransferMatchesForRows(periodRows)
+    .filter((match) => match.confidence === "high");
+  for (const match of transferMatches) {
+    items.push({
+      type: "transfer",
+      tone: "neutral",
+      title: "Afstem kontooverførsel",
+      text: `${accountById(match.outTx.accountId)?.name || "Konto"} → ${accountById(match.inTx.accountId)?.name || "konto"}. ${match.reason}.`,
+      amount: match.amount,
+      meta: `${formatDate(match.outTx.date)} / ${formatDate(match.inTx.date)}`,
+      primary: { action: "apply-transfer-match", label: "✓ Afstem", data: { out: match.outTx.id, in: match.inTx.id } },
+    });
+  }
+
+  const movementRows = getMoneyMovementCandidatesForRows(periodRows)
+    .map((tx) => ({ tx, suggestion: getMoneyMovementSuggestion(tx) }))
+    .filter(({ suggestion }) => suggestion.confidence === "high");
+  for (const { tx, suggestion } of movementRows) {
+    const category = categoryById(suggestion.categoryId);
+    items.push({
+      type: "movement",
+      tone: "neutral",
+      title: tx.description,
+      text: `${suggestion.reason} Foreslået: ${category?.name || "kategori"}.`,
+      amount: tx.amount,
+      meta: accountById(tx.accountId)?.name || "Ukendt konto",
+      primary: { action: "apply-money-movement", label: `✓ ${category?.name || "Anvend"}`, data: { id: tx.id } },
+    });
+  }
+
+  return items.sort((a, b) => priorityForCleanupItem(a) - priorityForCleanupItem(b) || Math.abs(Number(b.amount || 0)) - Math.abs(Number(a.amount || 0)));
+}
+
+function priorityForCleanupItem(item) {
+  if (item.type === "overlap") return 0;
+  if (item.type === "period") return 1;
+  if (item.type === "category") return 2;
+  if (item.type === "transfer") return 3;
+  if (item.type === "movement") return 4;
+  return 9;
+}
+
+function renderCleanupChecklist(items) {
+  if (!items.length) {
+    return `<div class="empty-state cleanup-empty"><strong>Alt er afkrydset</strong><span>Det valgte overblik bruger nu de bedste kategorier, afstemninger og periodiseringer vi har.</span></div>`;
+  }
+  return `
+    <div class="cleanup-checklist">
+      ${items.map((item) => `
+        <div class="cleanup-check-row ${escapeHtml(item.tone || "neutral")}">
+          ${renderCleanupActionButton(item.primary, "cleanup-checkmark")}
+          <div class="cleanup-check-copy">
+            <span>${escapeHtml(cleanupTypeLabel(item.type))}</span>
+            <strong>${escapeHtml(item.title)}</strong>
+            <small>${escapeHtml(item.text)}</small>
+            ${item.meta ? `<em>${escapeHtml(item.meta)}</em>` : ""}
+          </div>
+          <div class="cleanup-check-side">
+            <strong>${item.amount ? formatCurrency(Math.abs(Number(item.amount || 0))) : "—"}</strong>
+            ${item.secondary ? renderCleanupActionButton(item.secondary, "link-button cleanup-secondary") : ""}
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function cleanupTypeLabel(type) {
+  return {
+    overlap: "Dublet",
+    period: "Månedsskifte",
+    category: "Kategori",
+    transfer: "Konto-match",
+    movement: "Flytning",
+  }[type] || "Tjek";
+}
+
+function renderCleanupActionButton(action, className) {
+  if (!action) return "";
+  const attrs = Object.entries(action.data || {})
+    .map(([key, value]) => `data-${escapeHtml(key)}="${escapeHtml(value)}"`)
+    .join(" ");
+  return `<button class="${escapeHtml(className)}" type="button" data-action="${escapeHtml(action.action)}" ${attrs}>${escapeHtml(action.label)}</button>`;
+}
+
+function getAccrualSummaryRows() {
+  const { from, to } = activeDateRange();
+  return state.transactions
+    .map((tx) => ({ tx, accrual: getAccrualAllocation(tx) }))
+    .filter(({ accrual }) => accrual?.months?.some((month) => uiMonthEnd(month) >= from && uiMonthStart(month) <= to))
+    .sort((a, b) => b.tx.date.localeCompare(a.tx.date));
+}
+
+function renderAccrualSummary(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state compact-empty"><strong>Ingen kvartalsfordeling i perioden</strong><span>Når realkredit eller ejerforening rammer perioden, vises 1/3-fordelingen her.</span></div>`;
+  }
+  return `
+    <div class="accrual-list">
+      ${rows.slice(0, 8).map(({ tx, accrual }) => `
+        <div class="accrual-row">
+          <div>
+            <strong>${escapeHtml(tx.description)}</strong>
+            <small>${escapeHtml(accrual.reason)} ${accrual.months.map(monthLabel).join(" · ")}</small>
+          </div>
+          <span><strong>${formatCurrency(Math.abs(Number(tx.amount || 0)) / accrual.months.length)}</strong><small>pr. måned</small></span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function getPeriodizationReviewRows() {
+  const { from, to } = activeDateRange();
+  const bankWindowFrom = shiftDate(from, -7);
+  const bankWindowTo = shiftDate(to, 7);
+  return state.transactions
+    .map((tx) => ({ tx, info: getEconomicPeriodInfo(tx), bankMonth: toMonthKey(tx.date), day: Number(String(tx.date).slice(8, 10)) }))
+    .filter(({ tx, info, day }) => {
+      const inView = info.periodDate >= from && info.periodDate <= to;
+      const nearBoundary = day >= 25 || day <= 3;
+      const inWindow = tx.date >= bankWindowFrom && tx.date <= bankWindowTo;
+      return (info.moved || nearBoundary) && (inView || inWindow);
+    })
+    .sort((a, b) => Math.abs(Number(b.tx.amount || 0)) - Math.abs(Number(a.tx.amount || 0)) || b.tx.date.localeCompare(a.tx.date));
+}
+
+function renderPeriodizationReview(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen månedsskifteposter</strong><span>Der er ingen store løn-, budget- eller faste betalinger at tjekke i denne periode.</span></div>`;
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Postering</th><th>Bankdato</th><th>Økonomisk måned</th><th>Hvorfor</th><th style="text-align:right;">Beløb</th><th>Handling</th></tr></thead>
+        <tbody>
+          ${rows.map(({ tx, info }) => {
+            const approvedSuggestion = tx.periodLocked && tx.periodRule !== "manual-bankdate";
+            const approvedBankDate = tx.periodLocked && tx.periodRule === "manual-bankdate";
+            return `
+            <tr class="${tx.periodLocked ? "review-row-approved" : ""}">
+              <td class="description-cell"><strong>${escapeHtml(tx.description)}</strong><small>${escapeHtml(accountById(tx.accountId)?.name || "Ukendt konto")} · ${escapeHtml(categoryById(tx.categoryId)?.name || "Ukendt")}${tx.periodLocked ? " · godkendt" : ""}</small></td>
+              <td>${formatDate(tx.date)}<br /><small class="helper">${escapeHtml(monthLabel(toMonthKey(tx.date)))}</small></td>
+              <td>${escapeHtml(monthLabel(info.periodMonth))}${info.moved ? `<br /><span class="pill muted">flyttet</span>` : ""}</td>
+              <td><small class="helper">${escapeHtml(info.reason)} · ${info.confidence}%</small></td>
+              <td class="amount ${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</td>
+              <td><div class="actions">
+                <button class="icon-button" type="button" data-action="period-use-suggestion" data-id="${escapeHtml(tx.id)}" ${approvedSuggestion ? "disabled" : ""}>${approvedSuggestion ? "Godkendt" : "Godkend"}</button>
+                <button class="icon-button" type="button" data-action="period-use-bank" data-id="${escapeHtml(tx.id)}" ${approvedBankDate ? "disabled" : ""}>${approvedBankDate ? "Bankdato valgt" : "Bankdato"}</button>
+              </div></td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderTransferMatches(matches) {
+  if (!matches.length) {
+    return `<div class="empty-state"><strong>Ingen konto-match lige nu</strong><span>Når samme beløb går ud af én konto og ind på en anden, vises det her til afstemning.</span></div>`;
+  }
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fra</th>
+            <th>Til</th>
+            <th style="text-align:right;">Beløb</th>
+            <th>Hvorfor</th>
+            <th>Handling</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${matches.slice(0, 50).map((match) => `
+            <tr>
+              <td class="description-cell">
+                <strong>${escapeHtml(accountById(match.outTx.accountId)?.name || "Ukendt konto")}</strong>
+                <small>${formatDate(match.outTx.date)} · ${escapeHtml(match.outTx.description)}${match.outTx.note ? ` · Note: ${escapeHtml(match.outTx.note)}` : ""}</small>
+              </td>
+              <td class="description-cell">
+                <strong>${escapeHtml(accountById(match.inTx.accountId)?.name || "Ukendt konto")}</strong>
+                <small>${formatDate(match.inTx.date)} · ${escapeHtml(match.inTx.description)}${match.inTx.note ? ` · Note: ${escapeHtml(match.inTx.note)}` : ""}</small>
+              </td>
+              <td class="amount">${formatCurrency(match.amount)}</td>
+              <td>
+                <span class="pill ${match.confidence === "high" ? "" : "muted"}">${match.confidence === "high" ? "Sikkert" : "Tjek"}</span><br />
+                <small class="helper">${escapeHtml(match.reason)}</small>
+              </td>
+              <td>
+                <button class="button primary" type="button" data-action="apply-transfer-match" data-out="${match.outTx.id}" data-in="${match.inTx.id}">Afstem</button>
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderNeedsCategoryGroups(groups) {
+  if (!groups.length) {
+    return `<div class="empty-state"><strong>Alt ser kategoriseret ud</strong><span>Der er ingen posteringer i Andet/ukendt i denne måned.</span></div>`;
+  }
+  const quick = getQuickCategoryActions();
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Gruppe</th>
+            <th>Poster</th>
+            <th style="text-align:right;">Udgifter</th>
+            <th>Hurtig handling</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${groups.map((group) => `
+            <tr>
+              <td class="description-cell">
+                <strong>${escapeHtml(group.name)}</strong>
+                <small>${escapeHtml(group.examples.slice(0, 2).join(" · "))}</small>
+              </td>
+              <td>${group.count}</td>
+              <td class="amount amount-negative">${formatCurrency(group.expenseTotal)}</td>
+              <td>
+                <div class="actions">
+                  ${quick.map((item) => `<button class="icon-button" type="button" data-action="bulk-category-group" data-merchant="${escapeHtml(group.name)}" data-category="${escapeHtml(item.categoryId)}">${escapeHtml(item.label)}</button>`).join("")}
+                </div>
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderUncertainCategoryGroups(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen store usikkerheder</strong><span>De største posteringer i perioden har enten kategori eller tydeligt forslag.</span></div>`;
+  const quick = getQuickCategoryActions();
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Gruppe</th><th>Nuværende</th><th>Forslag</th><th style="text-align:right;">Beløb</th><th>Validér</th></tr></thead>
+        <tbody>
+          ${rows.map((group) => `
+            <tr>
+              <td class="description-cell"><strong>${escapeHtml(group.name)}</strong><small>${group.count} poster · ${escapeHtml(group.examples.slice(0, 2).join(" · "))}</small></td>
+              <td>${renderCategoryPill(categoryById(group.currentCategoryId))}<br /><small class="helper">${escapeHtml(group.reason || "Lav sikkerhed")}</small></td>
+              <td>${group.suggestion?.categoryId ? `${renderCategoryPill(categoryById(group.suggestion.categoryId))}<br /><small class="helper">${escapeHtml(group.suggestion.reason)} · ${group.suggestion.confidence}%</small>` : `<span class="pill muted">Intet sikkert forslag</span>`}</td>
+              <td class="amount amount-negative">${formatCurrency(group.expenseTotal)}</td>
+              <td><div class="actions">
+                ${group.suggestion?.categoryId ? `<button class="button primary" type="button" data-action="bulk-category-group" data-merchant="${escapeHtml(group.name)}" data-category="${escapeHtml(group.suggestion.categoryId)}">Anvend</button>` : ""}
+                ${quick.slice(0, 5).map((item) => `<button class="icon-button" type="button" data-action="bulk-category-group" data-merchant="${escapeHtml(group.name)}" data-category="${escapeHtml(item.categoryId)}">${escapeHtml(item.label)}</button>`).join("")}
+              </div></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMoneyMovementCandidates(rows) {
+  if (!rows.length) {
+    return `<div class="empty-state"><strong>Ingen oplagte flytninger</strong><span>Når der dukker overførsler, opsparing, investeringer eller MobilePay-refusioner op, vises de her.</span></div>`;
+  }
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Postering</th>
+            <th>Forslag</th>
+            <th style="text-align:right;">Beløb</th>
+            <th>Handling</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((tx) => {
+            const suggestion = getMoneyMovementSuggestion(tx);
+            return `
+              <tr>
+                <td class="description-cell">
+                  <strong>${escapeHtml(tx.description)}</strong>
+                  <small>${formatDate(tx.date)} · ${escapeHtml(accountById(tx.accountId)?.name || "Ukendt konto")}${tx.note ? ` · ${escapeHtml(tx.note)}` : ""}</small>
+                </td>
+                <td>${renderCategoryPill(categoryById(suggestion.categoryId))}<br /><small class="helper">${escapeHtml(suggestion.reason)}</small></td>
+                <td class="amount ${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</td>
+                <td>
+                  <div class="actions">
+                    <button class="button primary" type="button" data-action="apply-money-movement" data-id="${tx.id}">Anvend</button>
+                    <button class="icon-button" type="button" data-action="mark-transaction-category" data-id="${tx.id}" data-category="cat-transfer">Intern</button>
+                    <button class="icon-button" type="button" data-action="mark-transaction-category" data-id="${tx.id}" data-category="cat-savings">Opsparing/investering</button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderTransactionsView() {
+  const rows = getFilteredTransactions();
+  const pageSize = Number(ui.transactionsPageSize || 75);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  ui.transactionsPage = Math.max(1, Math.min(totalPages, Number(ui.transactionsPage || 1)));
+  const start = (ui.transactionsPage - 1) * pageSize;
+  const visibleRows = rows.slice(start, start + pageSize);
+  return `
+    <section class="panel pad bank-only-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Open Banking er kilden</h2>
+          <p>Posteringer oprettes ikke manuelt længere. Hent nye posteringer via Bankdata, og brug denne side til søgning, kategorier, noter og relationer.</p>
+        </div>
+        <div class="actions">
+          <button class="button primary" type="button" data-action="sync-latest">Opdatér bankdata</button>
+          <button class="button ghost" type="button" data-action="apply-rules">Kør regler</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section panel pad">
+      <div class="section-heading">
+        <div>
+          <h2>Poster i ${escapeHtml(activePeriodLabel())}</h2>
+          <p>${rows.length} post${rows.length === 1 ? "" : "er"} matcher filtrene.</p>
+        </div>
+      </div>
+      ${renderFilters()}
+      ${renderTransactionPager(rows.length, start, visibleRows.length, totalPages)}
+      ${renderTransactionTable(visibleRows, { compact: false })}
+      ${renderTransactionPager(rows.length, start, visibleRows.length, totalPages, "bottom")}
+    </section>
+  `;
+}
+
+function renderTransactionPager(totalRows, start, visibleCount, totalPages, position = "top") {
+  if (!totalRows) return "";
+  const page = Number(ui.transactionsPage || 1);
+  const end = start + visibleCount;
+  const nearby = Array.from(new Set([1, page - 1, page, page + 1, totalPages])).filter((item) => item >= 1 && item <= totalPages).sort((a, b) => a - b);
+  return `
+    <div class="transaction-pager ${escapeHtml(position)}">
+      <div>
+        <strong>Viser ${start + 1}-${end} af ${totalRows}</strong>
+        <small>${totalPages > 1 ? `Side ${page} af ${totalPages}` : "Alle matcher er vist"}</small>
+      </div>
+      <div class="actions pager-actions">
+        <label class="pager-size">Rækker
+          <select class="select" id="transactions-page-size" aria-label="Rækker pr. side">
+            ${[50, 75, 100, 150].map((size) => option(String(size), String(size), Number(ui.transactionsPageSize || 75) === size)).join("")}
+          </select>
+        </label>
+        <button class="icon-button" type="button" data-action="transactions-page" data-page="prev" ${page <= 1 ? "disabled" : ""}>Forrige</button>
+        ${nearby.map((item) => `<button class="icon-button ${item === page ? "active" : ""}" type="button" data-action="transactions-page" data-page="${item}">${item}</button>`).join("")}
+        <button class="icon-button" type="button" data-action="transactions-page" data-page="next" ${page >= totalPages ? "disabled" : ""}>Næste</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderTransactionForm() {
+  const tx = ui.editingId ? state.transactions.find((item) => item.id === ui.editingId) : null;
+  const date = tx?.date || todayISO();
+  const amount = tx ? formatAmountInput(tx.amount) : "";
+  const description = tx?.description || "";
+  const accountId = tx?.accountId || state.accounts[0]?.id || "";
+  const categoryId = tx?.categoryId || "";
+  const note = tx?.note || "";
+  const relationType = tx?.relationType || "";
+  const relationKey = tx?.relationKey || "";
+
+  return `
+    <form id="tx-form" class="form-grid" autocomplete="off">
+      <input type="hidden" name="id" value="${escapeHtml(tx?.id || "")}" />
+      <div class="field">
+        <label for="tx-date">Dato</label>
+        <input class="input" id="tx-date" name="date" type="date" value="${escapeHtml(date)}" required />
+      </div>
+      <div class="field">
+        <label for="tx-account">Konto</label>
+        <select class="select" id="tx-account" name="accountId" required>
+          ${state.accounts.map((account) => option(account.id, account.name, account.id === accountId)).join("")}
+        </select>
+      </div>
+      <div class="field wide">
+        <label for="tx-description">Tekst</label>
+        <input class="input" id="tx-description" name="description" placeholder="Fx Netto, husleje eller løn" value="${escapeHtml(description)}" required />
+      </div>
+      <div class="field">
+        <label for="tx-amount">Beløb</label>
+        <input class="input" id="tx-amount" name="amount" inputmode="decimal" placeholder="-349,95" value="${escapeHtml(amount)}" required />
+      </div>
+      <div class="field wide">
+        <label for="tx-category">Kategori</label>
+        <select class="select" id="tx-category" name="categoryId">
+          <option value="">Brug regel / vælg senere</option>
+          ${state.categories.map((category) => option(category.id, `${category.name} · ${kindLabel(category.kind)}`, category.id === categoryId)).join("")}
+        </select>
+      </div>
+      <div class="field wide">
+        <label for="tx-note">Note</label>
+        <textarea class="textarea" id="tx-note" name="note" rows="3" placeholder="Fx lagt ud for Mads, refunderes via MobilePay, eller intern overførsel til opsparing">${escapeHtml(note)}</textarea>
+      </div>
+      <div class="field">
+        <label for="tx-relation-type">Relation</label>
+        <select class="select" id="tx-relation-type" name="relationType">
+          ${RELATION_TYPES.map((type) => option(type.id, type.label, type.id === relationType)).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="tx-relation-key">Relationsnavn</label>
+        <input class="input" id="tx-relation-key" name="relationKey" placeholder="Fx Mads · middag" value="${escapeHtml(relationKey)}" />
+      </div>
+      <div class="form-actions">
+        <button class="button primary" type="submit">${ui.editingId ? "Gem ændring" : "Gem post"}</button>
+        ${ui.editingId ? `<button class="button ghost" type="button" data-action="cancel-edit">Annullér</button>` : ""}
+      </div>
+    </form>
+  `;
+}
+
+function renderFilters() {
+  return `
+    <div class="filters">
+      <div class="field">
+        <label for="search-input">Søg</label>
+        <input class="input" id="search-input" value="${escapeHtml(ui.query)}" placeholder="Søg i tekst, note, relation, konto eller kategori" />
+      </div>
+      <div class="field">
+        <label for="category-filter">Kategori</label>
+        <select class="select" id="category-filter">
+          <option value="all">Alle kategorier</option>
+          ${state.categories.map((category) => option(category.id, category.name, ui.categoryFilter === category.id)).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label for="account-filter">Konto</label>
+        <select class="select" id="account-filter">
+          <option value="all">Alle konti</option>
+          ${state.accounts.map((account) => option(account.id, account.name, ui.accountFilter === account.id)).join("")}
+        </select>
+      </div>
+    </div>
+  `;
+}
+
+function renderBankSyncView() {
+  const bankSync = getBankSyncState();
+  const eb = bankSync.enableBanking || {};
+  const ebConfig = eb.config || {};
+  const ebAccounts = eb.accounts || [];
+  const ebConfigured = ebConfig.configured;
+  const coverage = getDataCoverage();
+  return `
+    <section class="dashboard-hero bank-hero" aria-label="Bankdata status">
+      <div class="hero-copy">
+        <span class="hero-month">Bankdata</span>
+        <h2>${ebConfigured ? "Forbundet" : "Ikke forbundet"}</h2>
+        <div class="hero-amount bank-amount">${ebAccounts.length || 0} konti</div>
+        <div class="delta-row">
+          <span class="delta-pill positive"><small>Seneste sync</small><strong>${eb.lastSyncAt ? formatDateTime(eb.lastSyncAt) : "—"}</strong><em>${eb.lastImportCount ? `${eb.lastImportCount} nye poster` : "klar til sync"}</em></span>
+          <span class="delta-pill"><small>Historik i appen</small><strong>${coverage.first ? `${formatDate(coverage.first)} → ${formatDate(coverage.last)}` : "—"}</strong><em>${coverage.count} posteringer</em></span>
+        </div>
+      </div>
+      <div class="cashflow-panel">
+        <div class="quick-sync-stack">
+          <button class="button primary large-action" type="button" data-action="eb-sync-range" data-months="12">Hent 12 måneder</button>
+          <button class="button ghost" type="button" data-action="eb-sync-range" data-months="6">Hent 6 måneder</button>
+          <button class="button ghost" type="button" data-action="eb-sync-range" data-months="3">Hent 3 måneder</button>
+          <button class="button ghost" type="button" data-action="remove-overlaps">Fjern overlap</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section panel pad">
+      <div class="section-heading clean-heading">
+        <div>
+          <h2>Synkronisér</h2>
+          <p>Vælg en periode, hent bankposter og ryd overlap bagefter.</p>
+        </div>
+        <div class="actions">
+          <button class="button ghost" type="button" data-action="eb-accounts">Opdatér konti</button>
+          <button class="button primary" type="button" data-action="eb-sync">Hent valgt periode</button>
+        </div>
+      </div>
+      <div class="form-grid compact">
+        <div class="field"><label for="sync-date-from">Fra</label><input class="input" id="sync-date-from" type="date" value="${escapeHtml(ui.syncDateFrom)}" /></div>
+        <div class="field"><label for="sync-date-to">Til</label><input class="input" id="sync-date-to" type="date" value="${escapeHtml(ui.syncDateTo)}" /></div>
+        <div class="field"><label>Status</label><div class="inline-status ${ebConfigured ? "positive" : "negative"}">${ebConfigured ? "Enable Banking er klar" : "Opsætning mangler"}</div></div>
+      </div>
+    </section>
+
+    <section class="section panel pad">
+      <div class="section-heading clean-heading">
+        <div>
+          <h2>Konti</h2>
+          <p>${ebAccounts.length ? `${ebAccounts.length} konti er forbundet.` : "Klik Opdatér konti når samtykke er aktivt."}</p>
+        </div>
+      </div>
+      ${renderEnableBankingAccounts(ebAccounts)}
+    </section>
+
+    <details class="section panel pad provider-details">
+      <summary><strong>Teknisk opsætning</strong><span class="pill muted">sjældent nødvendig</span></summary>
+      <div class="section split" style="margin-top:18px;">
+        <div class="panel subtle pad">
+          <h2>Enable Banking</h2>
+          <div class="actions" style="justify-content:flex-start; margin-bottom:14px;">
+            <button class="button ghost" type="button" data-action="eb-status">Status</button>
+            <button class="button ghost" type="button" data-action="eb-diagnostics">Diagnose</button>
+            <button class="button ghost" type="button" data-action="eb-connect">Nyt samtykke</button>
+            <button class="button ghost" type="button" data-action="eb-generate-keys">Vis certifikat</button>
+          </div>
+          ${renderEnableBankingDiagnostics(eb.diagnostics)}
+        </div>
+        <div class="panel subtle pad">
+          <h2>Application ID</h2>
+          <form id="eb-setup-form" class="settings-stack" autocomplete="off">
+            <div class="field"><label for="eb-app-id">Application ID</label><input class="input" id="eb-app-id" name="appId" placeholder="Application ID fra Enable Banking" /></div>
+            <input type="hidden" name="aspspName" value="${escapeHtml(ebConfig.aspspName || "Sparekassen Kronjylland")}" />
+            <input type="hidden" name="country" value="${escapeHtml(ebConfig.country || "DK")}" />
+            <input type="hidden" name="language" value="${escapeHtml(ebConfig.language || "da")}" />
+            <button class="button primary" type="submit">Gem</button>
+          </form>
+        </div>
+      </div>
+    </details>
+  `;
+}
+
+function getDataCoverage() {
+  const rows = state.transactions.filter((tx) => tx.source !== "demo" && tx.date).sort((a, b) => a.date.localeCompare(b.date));
+  return { count: rows.length, first: rows[0]?.date || "", last: rows.at(-1)?.date || "" };
+}
+
+function renderEnableBankingDiagnostics(diagnostics) {
+  if (!diagnostics) {
+    return `<p class="helper">Kør diagnose for at validere certifikat, Application ID, lokal JWT-signering og kontakt til Enable Banking API.</p>`;
+  }
+  const rows = [
+    [".env-fil", diagnostics.envFileExists, diagnostics.envFileExists ? "Fundet" : "Mangler"],
+    ["Privat nøgle", diagnostics.privateKeyExists, diagnostics.privateKeyExists ? "Fundet lokalt" : "Mangler"],
+    ["Certifikat", diagnostics.certificateExists, diagnostics.certificateExists ? "Fundet" : "Mangler"],
+    ["Application ID", diagnostics.appIdConfigured, diagnostics.appIdConfigured ? "Sat" : "Mangler"],
+    ["JWT", diagnostics.jwt?.ok, diagnostics.jwt?.message || "Ikke testet"],
+    ["API", diagnostics.api?.ok, diagnostics.api?.message || "Ikke testet"],
+  ];
+  return `
+    <div class="account-list diagnostics-list">
+      ${rows.map(([label, ok, text]) => `
+        <div class="list-row">
+          <div><strong>${escapeHtml(label)}</strong><br /><small>${escapeHtml(text)}</small></div>
+          <span class="pill ${ok ? "" : "muted"}">${ok ? "OK" : "Tjek"}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderEnableBankingAccounts(accounts) {
+  if (!accounts.length) return `<div class="empty-state"><strong>Ingen Enable Banking-konti hentet</strong><span>Klik “Hent konti” efter MitID-samtykke-flowet.</span></div>`;
+  const bankSync = getBankSyncState();
+  return `
+    <div class="account-list">
+      ${accounts.map((account) => {
+        const selected = bankSync.accountMappings?.[account.id] || findAccountByName(account.name)?.id || `new:${account.name}`;
+        const balance = account.balances?.[0]?.balance_amount?.amount || account.balances?.[0]?.balanceAmount?.amount || account.balances?.[0]?.amount || "";
+        return `
+          <div class="list-row">
+            <div>
+              <strong>${escapeHtml(account.name)}</strong><br />
+              <small>${escapeHtml(account.iban || account.id)}${balance ? ` · saldo ${escapeHtml(balance)} ${escapeHtml(account.currency || "DKK")}` : ""}</small>
+            </div>
+            <select class="select" data-eb-map="${escapeHtml(account.id)}" aria-label="Map ${escapeHtml(account.name)} til lokal konto">
+              ${state.accounts.map((local) => option(local.id, local.name, selected === local.id)).join("")}
+              ${option(`new:${account.name}`, `Opret ny: ${account.name}`, selected.startsWith("new:"))}
+            </select>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderLocalCsvFolderPanel() {
+  return `
+    <section class="section panel pad">
+      <div class="section-heading">
+        <div>
+          <h2>Gratis fallback: lokal CSV-mappe</h2>
+          <p>Hvis PSD2 driller, kan Node-serveren læse CSV-filer direkte fra <span class="kbd">Documents/Privatøkonomi</span> uden browserens filvælger.</p>
+        </div>
+        <button class="button ghost" type="button" data-action="local-csv-load">Indlæs CSV-mappe</button>
+      </div>
+      <p class="helper">Det er ikke “ægte” bank-sync, men det er stabilt, gratis og privat — og bruger samme importlogik som upload.</p>
+    </section>
+  `;
+}
+
+function renderGoCardlessFallbackPanel(bankSync) {
+  const config = bankSync.config;
+  const accounts = bankSync.accounts || [];
+  const configured = config?.configured;
+  return `
+    <details class="section panel pad provider-details">
+      <summary><strong>Alternativ / fallback: GoCardless Bank Account Data</strong> <span class="pill ${configured ? "" : "muted"}">${configured ? "konfigureret" : "kræver B2B/API keys"}</span></summary>
+      <div class="section-heading" style="margin-top: 18px;">
+        <div>
+          <h2>GoCardless API keys</h2>
+          <p>GoCardless virker kun hvis du selv kan oprette API keys. De gemmes kun i den lokale <span class="kbd">.env</span>.</p>
+        </div>
+        <a class="button ghost" href="https://bankaccountdata.gocardless.com" target="_blank" rel="noreferrer">Åbn GoCardless</a>
+      </div>
+      <form id="gc-keys-form" class="form-grid" autocomplete="off">
+        <div class="field wide"><label for="gc-secret-id">Secret ID</label><input class="input" id="gc-secret-id" name="secretId" placeholder="Indsæt Secret ID fra GoCardless" /></div>
+        <div class="field wide"><label for="gc-secret-key">Secret Key</label><input class="input" id="gc-secret-key" name="secretKey" type="password" placeholder="Indsæt Secret Key fra GoCardless" /></div>
+        <div class="field"><label for="gc-institution-id">Institution</label><input class="input" id="gc-institution-id" name="institutionId" value="${escapeHtml(config?.institutionId || "SPAREKASSEN_KRONJYLLAND_KRONDK22")}" /></div>
+        <div class="field"><label for="gc-country">Land</label><input class="input" id="gc-country" name="country" value="${escapeHtml(config?.country || "DK")}" /></div>
+        <div class="form-actions"><button class="button primary" type="submit">Gem keys og kør diagnose</button></div>
+      </form>
+      <div class="section split" style="margin-top: 18px;">
+        <div class="panel subtle pad">
+          <h2>Forbind og hent</h2>
+          <div class="actions">
+            <button class="button ghost" type="button" data-action="gc-status">Tjek status</button>
+            <button class="button ghost" type="button" data-action="gc-diagnostics">Kør diagnose</button>
+            <button class="button primary" type="button" data-action="gc-connect">Opret samtykke</button>
+            <button class="button ghost" type="button" data-action="gc-accounts">Hent konti</button>
+            <button class="button primary" type="button" data-action="gc-sync">Synkronisér</button>
+          </div>
+          <label class="pill muted" style="margin-top: 12px;"><input id="gc-auto-sync" type="checkbox" ${bankSync.autoSyncOnOpen ? "checked" : ""} /> GoCardless-sync ved app-start</label>
+          <p class="helper"><strong>Seneste samtykke:</strong> ${escapeHtml(bankSync.lastRequisitionId || "Ikke oprettet endnu")}</p>
+        </div>
+        <div class="panel subtle pad">
+          <h2>GoCardless-diagnose</h2>
+          ${renderGoCardlessDiagnostics(bankSync.diagnostics)}
+        </div>
+      </div>
+      <div style="margin-top: 18px;">
+        <h2>GoCardless-kontomapping</h2>
+        ${renderGoCardlessAccounts(accounts)}
+      </div>
+    </details>
+  `;
+}
+
+function renderGoCardlessDiagnostics(diagnostics) {
+  if (!diagnostics) {
+    return `<p class="helper">Kør diagnose for at validere .env, API-token og Sparekassen Kronjylland institutionen.</p>`;
+  }
+  const rows = [
+    [".env-fil", diagnostics.envFileExists, diagnostics.envFileExists ? "Fundet" : "Mangler"],
+    ["Secret ID", diagnostics.hasSecretId, diagnostics.hasSecretId ? "Sat" : "Mangler"],
+    ["Secret Key", diagnostics.hasSecretKey, diagnostics.hasSecretKey ? "Sat" : "Mangler"],
+    ["API-token", diagnostics.token?.ok, diagnostics.token?.message || "Ikke testet"],
+    ["Institution", diagnostics.institution?.ok, diagnostics.institution?.message || diagnostics.institutionId],
+  ];
+  return `
+    <div class="account-list diagnostics-list">
+      ${rows.map(([label, ok, text]) => `
+        <div class="list-row">
+          <div><strong>${escapeHtml(label)}</strong><br /><small>${escapeHtml(text)}</small></div>
+          <span class="pill ${ok ? "" : "muted"}">${ok ? "OK" : "Tjek"}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderGoCardlessAccounts(accounts) {
+  if (!accounts.length) return `<div class="empty-state"><strong>Ingen GoCardless-konti hentet</strong><span>Klik “Hent konti fra GoCardless” efter samtykke-flowet.</span></div>`;
+  const bankSync = getBankSyncState();
+  return `
+    <div class="account-list">
+      ${accounts.map((account) => {
+        const selected = bankSync.accountMappings?.[account.id] || findAccountByName(account.name)?.id || `new:${account.name}`;
+        const latestBalance = account.balances?.[0]?.balanceAmount?.amount;
+        return `
+          <div class="list-row">
+            <div>
+              <strong>${escapeHtml(account.name)}</strong><br />
+              <small>${escapeHtml(account.iban || account.id)}${latestBalance ? ` · saldo ${escapeHtml(latestBalance)} ${escapeHtml(account.currency || "DKK")}` : ""}</small>
+            </div>
+            <select class="select" data-gc-map="${escapeHtml(account.id)}" aria-label="Map ${escapeHtml(account.name)} til lokal konto">
+              ${state.accounts.map((local) => option(local.id, local.name, selected === local.id)).join("")}
+              ${option(`new:${account.name}`, `Opret ny: ${account.name}`, selected.startsWith("new:"))}
+            </select>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderImportView() {
+  const hasAccounts = state.accounts.length > 0;
+  return `
+    <section class="split">
+      <div class="panel pad">
+        <div class="section-heading">
+          <div>
+            <h2>Upload bankfil</h2>
+            <p>CSV-filen bliver kun læst i browseren. Ingen banklogin og ingen betaling.</p>
+          </div>
+          <div class="actions">
+            <button class="button ghost" type="button" data-action="add-default-accounts">Klargør standardkonti</button>
+            <button class="button ghost" type="button" data-action="local-csv-load">Indlæs lokal CSV-mappe</button>
+            <a class="button ghost" href="sample-sparekassen.csv" download>Hent eksempel</a>
+          </div>
+        </div>
+        <div class="form-grid compact" style="margin-bottom: 16px;">
+          <div class="field">
+            <label for="import-account">Standardkonto</label>
+            <select class="select" id="import-account" ${hasAccounts ? "" : "disabled"}>
+              ${state.accounts.map((account) => option(account.id, account.name, ui.importAccountId === account.id)).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label for="import-month">Importer kun måned</label>
+            <input class="input" id="import-month" type="month" value="${escapeHtml(ui.importMonth)}" />
+          </div>
+          <label class="field" style="align-self:end;">
+            <span class="label">Filter</span>
+            <span class="pill muted"><input id="import-only-month" type="checkbox" ${ui.importOnlyMonth ? "checked" : ""} /> Kun valgt måned</span>
+          </label>
+        </div>
+        <label class="import-zone" for="csv-file">
+          <input id="csv-file" type="file" accept=".csv,text/csv,text/plain" multiple ${hasAccounts ? "" : "disabled"} />
+          <span>
+            <strong>${hasAccounts ? "Slip eller vælg én eller flere CSV-filer" : "Opret en konto først"}</strong>
+            <p>Vælg alle kontoudtog på én gang. Appen foreslår konto ud fra filnavnet og opretter manglende konti ved import.</p>
+          </span>
+        </label>
+      </div>
+      <div class="panel pad">
+        <h2>Sådan gør du</h2>
+        <p class="helper">
+          1. Log ind i Sparekassen Kronjylland.<br />
+          2. Eksportér posteringer som CSV for hver konto.<br />
+          3. Vælg alle filerne samtidig og kontrollér konto + kolonnemapping pr. fil.<br />
+          4. Importér — dubletter og måneder uden for filteret springes over.
+        </p>
+        <p class="helper"><strong>Tip:</strong> Filnavne som “Fællesbudget konto.csv” bliver automatisk foreslået som konto. Jeg har sat importen til kun at tage april som standard.</p>
+      </div>
+    </section>
+    ${ui.importDraft ? renderImportDraft() : ""}
+  `;
+}
+
+function renderImportDraft() {
+  const files = ui.importDraft?.files || [];
+  if (!files.length) return "";
+  const totalRows = files.reduce((sum, file) => sum + file.rows.length, 0);
+  const canImport = files.some((file) => file.map.date && file.map.description && file.map.amount && file.accountChoice);
+  return `
+    <section class="section panel pad">
+      <div class="section-heading">
+        <div>
+          <h2>Klargør import</h2>
+          <p>${files.length} fil${files.length === 1 ? "" : "er"} · ${totalRows} række${totalRows === 1 ? "" : "r"} fundet${ui.importOnlyMonth ? ` · importerer kun ${escapeHtml(monthLabel(ui.importMonth))}` : ""}</p>
+        </div>
+        <button class="button primary" type="button" data-action="import-csv" ${canImport ? "" : "disabled"}>Importér alle filer</button>
+      </div>
+      <div class="import-file-list">
+        ${files.map((draft, index) => renderImportFileDraft(draft, index)).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderImportFileDraft(draft, index) {
+  const rows = draft.rows.slice(0, 3);
+  return `
+    <div class="import-file-card">
+      <div class="section-heading">
+        <div>
+          <h3>${escapeHtml(draft.fileName)}</h3>
+          <p>${escapeHtml(draft.headerless ? "Bankfil uden overskrifter" : "CSV med overskrifter")} · ${draft.rows.length} række${draft.rows.length === 1 ? "" : "r"}</p>
+        </div>
+      </div>
+      <div class="mapping-grid">
+        <div class="field">
+          <label for="draft-account-${index}">Konto</label>
+          <select class="select" id="draft-account-${index}" data-draft-account="${index}">
+            ${state.accounts.map((account) => option(account.id, account.name, draft.accountChoice === account.id)).join("")}
+            ${draft.accountChoice.startsWith("new:") ? option(draft.accountChoice, `Opret: ${draft.accountName}`, true) : option(`new:${draft.accountName}`, `Opret: ${draft.accountName}`, false)}
+          </select>
+        </div>
+        ${renderMappingSelect(index, "date", "Dato")}
+        ${renderMappingSelect(index, "description", "Tekst")}
+        ${renderMappingSelect(index, "amount", "Beløb")}
+        ${renderMappingSelect(index, "counterparty", "Modpart (valgfri)")}
+      </div>
+      <div class="table-wrap import-preview">
+        <table>
+          <thead>
+            <tr>${draft.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `<tr>${draft.headers.map((header) => `<td>${escapeHtml(row[header] || "")}</td>`).join("")}</tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderMappingSelect(index, key, label) {
+  const draft = ui.importDraft.files[index];
+  return `
+    <div class="field">
+      <label for="map-${index}-${key}">${escapeHtml(label)}</label>
+      <select class="select" id="map-${index}-${key}" data-draft-index="${index}" data-csv-map="${key}">
+        <option value="">Vælg kolonne</option>
+        ${draft.headers.map((header) => option(header, header, draft.map[key] === header)).join("")}
+      </select>
+    </div>
+  `;
+}
+
+function renderAccountsView() {
+  return `
+    <section class="split">
+      <div class="panel pad">
+        <div class="section-heading">
+          <div>
+            <h2>Konti</h2>
+            <p>Samlet saldo: <strong>${formatCurrency(getTotalBalance())}</strong></p>
+          </div>
+        </div>
+        ${renderAccountsList()}
+      </div>
+      <div class="panel pad">
+        <h2>Opret konto</h2>
+        <form id="account-form" class="settings-stack" autocomplete="off">
+          <div class="field">
+            <label for="account-name">Navn</label>
+            <input class="input" id="account-name" name="name" placeholder="Fx Budgetkonto" required />
+          </div>
+          <div class="field">
+            <label for="account-type">Type</label>
+            <input class="input" id="account-type" name="type" placeholder="Fx Bankkonto" required />
+          </div>
+          <div class="field">
+            <label for="account-balance">Saldo</label>
+            <input class="input" id="account-balance" name="balance" inputmode="decimal" placeholder="0,00" />
+          </div>
+          <button class="button primary" type="submit">Tilføj konto</button>
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function renderAccountsList() {
+  if (!state.accounts.length) {
+    return `<div class="empty-state"><strong>Ingen konti endnu</strong><span>Opret mindst én konto før du importerer CSV.</span></div>`;
+  }
+  return `
+    <div class="account-list">
+      ${state.accounts.map((account) => {
+        const summary = getAccountMonthlySummary(account.id, ui.month);
+        return `
+        <div class="list-row">
+          <div>
+            <strong>${escapeHtml(account.name)}</strong><br />
+            <small>${escapeHtml(account.type)} · ${transactionCountForAccount(account.id)} post${transactionCountForAccount(account.id) === 1 ? "" : "er"} · ${escapeHtml(monthLabel(ui.month))}: ind ${formatCurrency(summary.income)}, ud ${formatCurrency(summary.expenses)}, flytning ${formatCurrency(summary.transfers)}</small>
+          </div>
+          <div class="actions">
+            <input class="input balance-input" data-account-balance="${account.id}" inputmode="decimal" value="${escapeHtml(formatAmountInput(account.balance))}" aria-label="Saldo for ${escapeHtml(account.name)}" ${privacyInputAttrs()} />
+            <button class="icon-button" type="button" data-action="delete-account" data-id="${account.id}" aria-label="Slet ${escapeHtml(account.name)}">Slet</button>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderAccountMiniList() {
+  if (!state.accounts.length) return `<div class="empty-state"><strong>Ingen konti</strong><span>Opret en konto for at starte.</span></div>`;
+  return `
+    <div class="account-list">
+      ${state.accounts.map((account) => `
+        <div class="list-row">
+          <div>
+            <strong>${escapeHtml(account.name)}</strong><br />
+            <small>${escapeHtml(account.type)}</small>
+          </div>
+          <strong>${formatCurrency(Number(account.balance || 0))}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderCategoriesView() {
+  return `
+    <section class="split">
+      <div class="panel pad">
+        <div class="section-heading">
+          <div>
+            <h2>Kategorier</h2>
+            <p>Hold listen kort, så dashboardet er nemt at læse.</p>
+          </div>
+        </div>
+        ${renderCategoryList()}
+      </div>
+      <div class="panel pad">
+        <h2>Ny kategori</h2>
+        <form id="category-form" class="settings-stack" autocomplete="off">
+          <div class="field">
+            <label for="category-name">Navn</label>
+            <input class="input" id="category-name" name="name" placeholder="Fx Gaver" required />
+          </div>
+          <div class="field">
+            <label for="category-kind">Type</label>
+            <select class="select" id="category-kind" name="kind">
+              <option value="expense">Udgift</option>
+              <option value="income">Indtægt</option>
+              <option value="transfer">Intern overførsel</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="category-color">Farve</label>
+            <input class="input" id="category-color" name="color" type="color" value="#245f56" />
+          </div>
+          <button class="button primary" type="submit">Tilføj kategori</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="section split">
+      <div class="panel pad">
+        <div class="section-heading">
+          <div>
+            <h2>Regler</h2>
+            <p>Hvis teksten indeholder ordet, sættes kategorien automatisk ved import.</p>
+          </div>
+          <button class="button ghost" type="button" data-action="apply-rules">Kør regler nu</button>
+        </div>
+        ${renderRuleList()}
+      </div>
+      <div class="panel pad">
+        <h2>Ny regel</h2>
+        <form id="rule-form" class="settings-stack" autocomplete="off">
+          <div class="field">
+            <label for="rule-keyword">Tekst indeholder</label>
+            <input class="input" id="rule-keyword" name="keyword" placeholder="Fx netto" required />
+          </div>
+          <div class="field">
+            <label for="rule-category">Kategori</label>
+            <select class="select" id="rule-category" name="categoryId" required>
+              ${state.categories.map((category) => option(category.id, category.name, false)).join("")}
+            </select>
+          </div>
+          <button class="button primary" type="submit">Tilføj regel</button>
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function renderCategoryList() {
+  if (!state.categories.length) {
+    return `<div class="empty-state"><strong>Ingen kategorier</strong><span>Tilføj en kategori for at sortere poster.</span></div>`;
+  }
+  return `
+    <div class="category-list">
+      ${state.categories.map((category) => `
+        <div class="list-row">
+          <div>
+            <span class="color-dot" style="--dot: ${escapeHtml(category.color)}"></span>
+            <strong>${escapeHtml(category.name)}</strong><br />
+            <small>${kindLabel(category.kind)} · ${transactionCountForCategory(category.id)} post${transactionCountForCategory(category.id) === 1 ? "" : "er"}</small>
+          </div>
+          <button class="icon-button" type="button" data-action="delete-category" data-id="${category.id}">Slet</button>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderRuleList() {
+  if (!state.rules.length) {
+    return `<div class="empty-state"><strong>Ingen regler</strong><span>Opret fx “netto” → Dagligvarer.</span></div>`;
+  }
+  return `
+    <div class="rule-list">
+      ${state.rules.map((rule) => {
+        const category = categoryById(rule.categoryId);
+        return `
+          <div class="list-row">
+            <div>
+              <strong>“${escapeHtml(rule.keyword)}”</strong><br />
+              <small>→ ${escapeHtml(category?.name || "Ukendt kategori")}</small>
+            </div>
+            <button class="icon-button" type="button" data-action="delete-rule" data-id="${rule.id}">Slet</button>
+          </div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderSettingsView() {
+  return `
+    <section class="split">
+      <div class="panel pad">
+        <h2>Husstand</h2>
+        <form id="settings-form" class="settings-stack" autocomplete="off">
+          <div class="field">
+            <label for="household-name">Navn</label>
+            <input class="input" id="household-name" name="householdName" value="${escapeHtml(state.settings.householdName || "")}" required />
+          </div>
+          <div class="field">
+            <label for="members">Adgang / personer</label>
+            <input class="input" id="members" name="members" value="${escapeHtml(state.settings.members || "")}" placeholder="Dig og din kæreste" />
+          </div>
+          <button class="button primary" type="submit">Gem indstillinger</button>
+        </form>
+      </div>
+      <div class="panel pad">
+        <h2>Backup og flytning</h2>
+        <p class="helper">Eksportér en backup før du rydder data eller vil flytte overblikket til en anden browser. Filen indeholder alle konti, regler og posteringer.</p>
+        <div class="file-actions">
+          <button class="button primary" type="button" data-action="export-backup">Eksportér backup</button>
+          <button class="button ghost" type="button" data-action="trigger-backup-import">Importer backup</button>
+          <input class="hidden-file" id="backup-file" type="file" accept="application/json,.json" />
+        </div>
+      </div>
+    </section>
+
+    <section class="section split">
+      <div class="panel pad">
+        <h2>Om nul-kroners versionen</h2>
+        <p class="helper">
+          Denne version bruger ingen database, ingen bank-API og ingen betalte leverandører. Det gør den billig og privat,
+          men data synkroniseres ikke automatisk mellem enheder endnu. Næste fase kan koble gratis Supabase-login på.
+        </p>
+      </div>
+      <div class="panel pad">
+        <h2>Ryd eller nulstil</h2>
+        <p class="helper">Brug kun disse knapper, hvis du har taget backup.</p>
+        <div class="file-actions">
+          <button class="button ghost" type="button" data-action="reset-demo">Nulstil til tom start</button>
+          <button class="button danger" type="button" data-action="clear-data">Ryd posteringer</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderPeriodControl() {
+  const months = getAvailableMonths();
+  const range = activeDateRange();
+  return `
+    <div class="period-control" aria-label="Datofilter">
+      <div class="period-head">
+        <span class="label">Periode</span>
+        <strong>${escapeHtml(activePeriodLabel())}</strong>
+      </div>
+      <div class="period-presets" aria-label="Hurtige perioder">
+        <button class="period-chip ${isPeriodPresetActive("month") ? "active" : ""}" type="button" data-action="period-preset" data-preset="month">Denne måned</button>
+        <button class="period-chip ${isPeriodPresetActive("prev-month") ? "active" : ""}" type="button" data-action="period-preset" data-preset="prev-month">Sidste måned</button>
+        <button class="period-chip ${isPeriodPresetActive("90d") ? "active" : ""}" type="button" data-action="period-preset" data-preset="90d">90 dage</button>
+        <button class="period-chip ${isPeriodPresetActive("ytd") ? "active" : ""}" type="button" data-action="period-preset" data-preset="ytd">År til dato</button>
+        <button class="period-chip ${isPeriodPresetActive("all") ? "active" : ""}" type="button" data-action="period-preset" data-preset="all">Alt</button>
+      </div>
+      <div class="period-row date-row">
+        <label class="field period-month-field">
+          <span class="label">Måned</span>
+          <select class="select" id="month-select" aria-label="Vælg måned">
+            ${months.map((month) => option(month, monthLabel(month), ui.month === month)).join("")}
+          </select>
+        </label>
+        <label class="field">
+          <span class="label">Fra</span>
+          <input class="input" id="period-from" type="date" value="${escapeHtml(range.from)}" aria-label="Fra dato" />
+        </label>
+        <span class="period-arrow" aria-hidden="true">→</span>
+        <label class="field">
+          <span class="label">Til</span>
+          <input class="input" id="period-to" type="date" value="${escapeHtml(range.to)}" aria-label="Til dato" />
+        </label>
+      </div>
+    </div>
+  `;
+}
+
+function renderDrawer() {
+  if (ui.drawerTxId) return renderTransactionDrawer(ui.drawerTxId);
+  if (ui.drawer) return renderDrilldownDrawer(ui.drawer);
+  return "";
+}
+
+function renderDrilldownDrawer(drawer) {
+  const totalExpenses = drawer.transactions.filter((tx) => tx.amount < 0 && categoryById(tx.categoryId)?.kind !== "transfer").reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+  const net = drawer.transactions.reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  return `
+    <div class="drawer-backdrop" data-action="close-drawer" aria-hidden="true"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="${escapeHtml(drawer.title)}">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow">Drilldown</p>
+          <h2>${escapeHtml(drawer.title)}</h2>
+          <p class="helper">${escapeHtml(drawer.subtitle || "")}</p>
+        </div>
+        <button class="icon-button" type="button" data-action="close-drawer">Luk</button>
+      </div>
+      <div class="drawer-metrics">
+        <div><span>Poster</span><strong>${drawer.transactions.length}</strong></div>
+        <div><span>Udgifter</span><strong>${formatCurrency(totalExpenses)}</strong></div>
+        <div><span>Netto</span><strong>${formatCurrency(net)}</strong></div>
+      </div>
+      ${renderDrawerTransactionList(drawer.transactions)}
+    </aside>
+  `;
+}
+
+function renderDrawerTransactionList(rows) {
+  if (!rows.length) return `<div class="empty-state"><strong>Ingen posteringer</strong><span>Der er ingen poster i dette drilldown.</span></div>`;
+  return `
+    <div class="drawer-list">
+      ${rows.map((tx) => `
+        <button class="drawer-row" type="button" data-action="open-transaction" data-id="${tx.id}">
+          <span><strong>${escapeHtml(tx.description)}</strong><small>${formatDate(tx.date)} · ${escapeHtml(accountById(tx.accountId)?.name || "Ukendt konto")} · ${escapeHtml(categoryById(tx.categoryId)?.name || "Ukendt")}</small></span>
+          <strong class="${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</strong>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderTransactionDrawer(txId) {
+  const tx = state.transactions.find((item) => item.id === txId);
+  if (!tx) return "";
+  return `
+    <div class="drawer-backdrop" data-action="close-drawer" aria-hidden="true"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" aria-label="Redigér postering">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow">Postering</p>
+          <h2>${escapeHtml(tx.description)}</h2>
+          <p class="helper">${formatDate(tx.date)} · ${escapeHtml(accountById(tx.accountId)?.name || "Ukendt konto")}</p>
+        </div>
+        <button class="icon-button" type="button" data-action="close-drawer">Luk</button>
+      </div>
+      <form id="drawer-tx-form" class="settings-stack" autocomplete="off">
+        <input type="hidden" name="id" value="${tx.id}" />
+        <div class="openbanking-factbox">
+          <div><span>Dato</span><strong>${formatDate(tx.date)}</strong></div>
+          <div><span>Konto</span><strong>${escapeHtml(accountById(tx.accountId)?.name || "Ukendt konto")}</strong></div>
+          <div><span>Beløb</span><strong class="${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</strong></div>
+          <div><span>Kilde</span><strong>${escapeHtml(sourceLabel(tx.source))}</strong></div>
+        </div>
+        <p class="helper">Dato, tekst, konto og beløb kommer fra Open Banking og kan ikke rettes manuelt. Brug felterne her til kategori, note og relation.</p>
+        <div class="field"><label for="drawer-category">Kategori</label><select class="select" id="drawer-category" name="categoryId">${state.categories.map((category) => option(category.id, `${category.name} · ${kindLabel(category.kind)}`, category.id === tx.categoryId)).join("")}</select></div>
+        <div class="field"><label for="drawer-note">Note</label><textarea class="textarea" id="drawer-note" name="note" rows="4">${escapeHtml(tx.note || "")}</textarea></div>
+        <div class="field"><label for="drawer-relation-type">Relation</label><select class="select" id="drawer-relation-type" name="relationType">${RELATION_TYPES.map((type) => option(type.id, type.label, type.id === (tx.relationType || ""))).join("")}</select></div>
+        <div class="field"><label for="drawer-relation-key">Relationsnavn</label><input class="input" id="drawer-relation-key" name="relationKey" value="${escapeHtml(tx.relationKey || "")}" /></div>
+        ${tx.linkedTransactionId ? `<p class="helper">Afstemt med ${escapeHtml(accountById(state.transactions.find((item) => item.id === tx.linkedTransactionId)?.accountId)?.name || "anden konto")}.</p>` : ""}
+        <button class="button primary" type="submit">Gem postering</button>
+      </form>
+    </aside>
+  `;
+}
+
+function buildDrilldown(type, id) {
+  let title = "Drilldown";
+  let subtitle = activePeriodLabel();
+  let transactions = getPeriodTransactions();
+  if (ui.reportAccountFilter !== "all") transactions = transactions.filter((tx) => tx.accountId === ui.reportAccountFilter);
+
+  if (type === "category") {
+    const category = categoryById(id);
+    title = category?.name || "Kategori";
+    subtitle = `Kategori · ${activePeriodLabel()}`;
+    transactions = transactions.filter((tx) => tx.categoryId === id);
+  } else if (type === "merchant") {
+    title = id;
+    subtitle = `Modtager · ${activePeriodLabel()}`;
+    transactions = transactions.filter((tx) => merchantName(tx.description) === id);
+  } else if (type === "account") {
+    const account = accountById(id);
+    title = account?.name || "Konto";
+    subtitle = `Konto · ${activePeriodLabel()}`;
+    transactions = transactions.filter((tx) => tx.accountId === id);
+  } else if (type === "match") {
+    title = "Afstemt kontooverførsel";
+    subtitle = "Intern flytning";
+    transactions = transactions.filter((tx) => tx.matchGroupId === id);
+  } else if (type === "auto-match") {
+    title = "Krydstjekket overførsel";
+    subtitle = "Holdes ude af nøgletal";
+    const ids = new Set(String(id || "").split("|"));
+    transactions = transactions.filter((tx) => ids.has(tx.id));
+  } else if (type === "cleanup") {
+    title = "Ukategoriserede posteringer";
+    subtitle = "Oprydning";
+    transactions = transactions.filter(isNeedsCategory);
+  }
+
+  return { type, id, title, subtitle, transactions: transactions.sort(sortTransactionsDesc) };
+}
+
+function renderTransactionTable(rows, { compact } = { compact: false }) {
+  if (!rows.length) {
+    return `<div class="empty-state"><strong>Ingen posteringer</strong><span>Hent bankdata via Open Banking eller vælg en anden periode.</span></div>`;
+  }
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Dato</th>
+            <th>Tekst</th>
+            <th>Kategori</th>
+            <th>Konto</th>
+            <th style="text-align:right;">Beløb</th>
+
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((tx) => {
+            const category = categoryById(tx.categoryId);
+            const account = accountById(tx.accountId);
+            return `
+              <tr>
+                <td>${renderTransactionDate(tx)}</td>
+                <td class="description-cell">
+                  <strong>${escapeHtml(tx.description)}</strong>
+                  <small>${escapeHtml(sourceLabel(tx.source))}${tx.note ? ` · Note: ${escapeHtml(tx.note)}` : ""} · <button class="link-button" type="button" data-action="open-transaction" data-id="${tx.id}">Åbn detaljer</button></small>
+                  ${tx.categorySource || tx.categoryConfidence ? `<small>Kategori: ${escapeHtml(tx.categorySource || "auto")}${tx.categoryConfidence ? ` · ${tx.categoryConfidence}%` : ""}${tx.categoryReason ? ` · ${escapeHtml(tx.categoryReason)}` : ""}</small>` : ""}
+                  ${tx.relationType || tx.relationKey ? `<small>Relation: ${escapeHtml(relationTypeLabel(tx.relationType))}${tx.relationKey ? ` · ${escapeHtml(tx.relationKey)}` : ""}</small>` : ""}
+                  ${tx.linkedTransactionId ? `<small>Afstemt med: ${escapeHtml(accountById(state.transactions.find((item) => item.id === tx.linkedTransactionId)?.accountId)?.name || "anden konto")}</small>` : ""}
+                </td>
+                <td>
+                  ${compact
+                    ? renderCategoryPill(category)
+                    : `<select class="select" data-tx-category="${tx.id}" aria-label="Kategori for ${escapeHtml(tx.description)}">
+                        ${state.categories.map((item) => option(item.id, item.name, item.id === tx.categoryId)).join("")}
+                       </select>`}
+                </td>
+                <td>${escapeHtml(account?.name || "Ukendt konto")}</td>
+                <td class="amount ${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</td>
+
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderTransactionDate(tx) {
+  const viewDate = transactionDateForView(tx);
+  const bankDate = tx.bankDate || tx.date;
+  const moved = ui.dateBasis === "economic" && viewDate !== bankDate;
+  const allocated = tx.allocated ? `<small>${tx.allocationIndex}/${tx.allocationMonths} · ${formatCurrency(tx.originalAmount)}</small>` : "";
+  return `<span class="tx-date-stack"><strong>${formatDate(viewDate)}</strong>${moved ? `<small>bank: ${formatDate(bankDate)}</small>` : ""}${allocated}</span>`;
+}
+
+function renderCategoryPill(category) {
+  if (!category) return `<span class="pill muted">Ukendt</span>`;
+  return `<span class="pill dot" style="--pill-color: ${escapeHtml(category.color)}">${escapeHtml(category.name)}</span>`;
+}
+
+function renderCategoryBreakdown(monthOrRows) {
+  const sourceRows = Array.isArray(monthOrRows) ? monthOrRows : getTransactionsForMonth(monthOrRows);
+  const expenses = sourceRows.filter((tx) => tx.amount < 0 && categoryById(tx.categoryId)?.kind !== "transfer");
+  if (!expenses.length) {
+    return `<div class="empty-state"><strong>Ingen udgifter</strong><span>Der er ikke registreret udgifter i den valgte periode.</span></div>`;
+  }
+  const totals = new Map();
+  for (const tx of expenses) {
+    totals.set(tx.categoryId, (totals.get(tx.categoryId) || 0) + Math.abs(tx.amount));
+  }
+  const rows = Array.from(totals.entries())
+    .map(([categoryId, total]) => ({ category: categoryById(categoryId), total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 7);
+  const max = Math.max(...rows.map((row) => row.total));
+  return `
+    <div class="breakdown-list">
+      ${rows.map((row) => {
+        const pct = max ? Math.max(4, Math.round((row.total / max) * 100)) : 0;
+        const color = row.category?.color || "#8a8d84";
+        return `
+          <div class="breakdown-item">
+            <div class="breakdown-line">
+              <strong>${escapeHtml(row.category?.name || "Ukendt")}</strong>
+              <span>${formatCurrency(row.total)}</span>
+            </div>
+            <div class="progress" aria-hidden="true"><span style="--width: ${pct}%; --bar-color: ${escapeHtml(color)}"></span></div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderMerchantBreakdown(monthOrRows) {
+  const expenses = (Array.isArray(monthOrRows) ? monthOrRows : getExpenseTransactionsForMonth(monthOrRows))
+    .filter((tx) => tx.amount < 0 && categoryById(tx.categoryId)?.kind !== "transfer");
+  if (!expenses.length) {
+    return `<div class="empty-state"><strong>Ingen udgifter</strong><span>Importer posteringer for at se steder og modtagere.</span></div>`;
+  }
+  const totals = groupExpensesByMerchant(expenses).slice(0, 8);
+  const max = Math.max(...totals.map((row) => row.total));
+  return `
+    <div class="breakdown-list">
+      ${totals.map((row) => {
+        const pct = max ? Math.max(4, Math.round((row.total / max) * 100)) : 0;
+        return `
+          <div class="breakdown-item">
+            <div class="breakdown-line">
+              <strong>${escapeHtml(row.name)}</strong>
+              <span>${formatCurrency(row.total)}</span>
+            </div>
+            <div class="progress" aria-hidden="true"><span style="--width: ${pct}%; --bar-color: #245f56"></span></div>
+          </div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderRecurringCandidates() {
+  const expenses = state.transactions.filter((tx) => tx.amount < 0 && categoryById(tx.categoryId)?.kind !== "transfer");
+  const grouped = new Map();
+  for (const tx of expenses) {
+    const name = merchantName(tx.description);
+    const entry = grouped.get(name) || { name, total: 0, count: 0, months: new Set() };
+    entry.total += Math.abs(tx.amount);
+    entry.count += 1;
+    entry.months.add(toMonthKey(tx.date));
+    grouped.set(name, entry);
+  }
+  const rows = Array.from(grouped.values())
+    .filter((entry) => entry.count >= 2 || entry.months.size >= 2)
+    .map((entry) => ({ ...entry, monthCount: entry.months.size, average: entry.total / Math.max(1, entry.months.size) }))
+    .sort((a, b) => b.average - a.average)
+    .slice(0, 7);
+
+  if (!rows.length) {
+    return `<div class="empty-state"><strong>Ikke nok historik</strong><span>Importer flere måneder for at finde gentagne udgifter.</span></div>`;
+  }
+
+  return `
+    <div class="account-list">
+      ${rows.map((row) => `
+        <div class="list-row">
+          <div>
+            <strong>${escapeHtml(row.name)}</strong><br />
+            <small>${row.count} post${row.count === 1 ? "" : "er"} · ${row.monthCount} måned${row.monthCount === 1 ? "" : "er"}</small>
+          </div>
+          <strong>${formatCurrency(row.average)}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderRelationInsights(monthOrRows) {
+  const rows = buildRelationInsights(monthOrRows);
+  if (!rows.length) {
+    return `<div class="empty-state"><strong>Ingen noter endnu</strong><span>Tilføj en note på en postering, fx “lagt ud for Mads” eller “intern overførsel til opsparing”.</span></div>`;
+  }
+
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Relation</th>
+            <th>Poster</th>
+            <th>Noter</th>
+            <th style="text-align:right;">Netto</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td class="description-cell">
+                <strong>${escapeHtml(row.key)}</strong>
+                <small>${escapeHtml(relationTypeLabel(row.type))}${Math.abs(row.net) < 0.01 ? " · afstemt i nul" : ""}${row.suggested ? " · forslag fra note" : ""}</small>
+              </td>
+              <td>${row.count}</td>
+              <td class="description-cell"><small>${escapeHtml(row.notes.join(" · ") || "Ingen noter")}</small></td>
+              <td class="amount ${row.net >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(row.net)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function buildRelationInsights(monthOrRows) {
+  const rows = new Map();
+  const transactions = (Array.isArray(monthOrRows) ? monthOrRows : getTransactionsForMonth(monthOrRows)).filter((tx) => tx.note || tx.relationType || tx.relationKey);
+  for (const tx of transactions) {
+    const inferred = inferRelationFromNote(tx.note, tx.description);
+    const type = tx.relationType || inferred.type || "andet";
+    const key = tx.relationKey || inferred.key || merchantName(tx.description);
+    const id = `${type}|${normalize(key)}`;
+    const entry = rows.get(id) || { type, key, net: 0, count: 0, notes: [], suggested: !tx.relationType && !tx.relationKey && Boolean(inferred.type) };
+    entry.net += Number(tx.amount || 0);
+    entry.count += 1;
+    if (tx.note && !entry.notes.includes(tx.note)) entry.notes.push(tx.note);
+    entry.suggested ||= !tx.relationType && !tx.relationKey && Boolean(inferred.type);
+    rows.set(id, entry);
+  }
+  return Array.from(rows.values()).sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+}
+
+function renderTrend() {
+  const months = lastMonths(ui.month, 6);
+  const summaries = months.map((month) => ({ month, ...getMonthlySummary(month) }));
+  const max = Math.max(1, ...summaries.flatMap((item) => [item.income, item.expenses]));
+  return `
+    <div class="trend" aria-label="Indtægter og udgifter over tid">
+      ${summaries.map((item) => {
+        const incomeHeight = Math.max(4, Math.round((item.income / max) * 100));
+        const expenseHeight = Math.max(4, Math.round((item.expenses / max) * 100));
+        return `
+          <div class="trend-month">
+            <div class="trend-bars">
+              <span class="trend-bar income" style="--height: ${incomeHeight}%" title="Indtægter ${formatCurrency(item.income)}"></span>
+              <span class="trend-bar expense" style="--height: ${expenseHeight}%" title="Udgifter ${formatCurrency(item.expenses)}"></span>
+            </div>
+            <div class="trend-label">${escapeHtml(shortMonthLabel(item.month))}</div>
+          </div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+async function handleClick(event) {
+  const monthButton = event.target.closest("[data-month-jump]");
+  if (monthButton) {
+    setMonthPeriod(monthButton.dataset.monthJump);
+    saveState();
+    render();
+    return;
+  }
+
+  const navButton = event.target.closest("[data-nav]");
+  if (navButton) {
+    ui.view = navButton.dataset.nav;
+    ui.editingId = null;
+    ui.drawer = null;
+    ui.drawerTxId = null;
+    render();
+    if (ui.view === "bank-sync") window.setTimeout(() => hydrateEnableBankingFromServer(false), 80);
+    return;
+  }
+
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+  const action = button.dataset.action;
+  const id = button.dataset.id;
+
+  if (action === "noop") {
+    return;
+  }
+
+  if (action === "undo-last-bulk") {
+    if (!ui.undo?.stateJson) {
+      notify("Der er ingen bulk-handling at fortryde.", "danger");
+      return;
+    }
+    const label = ui.undo.label;
+    localStorage.setItem(STORAGE_KEY, ui.undo.stateJson);
+    state = loadState();
+    ui.undo = null;
+    hydratePeriodUiFromState();
+    saveStateQuietly();
+    render();
+    notify(`Fortrød: ${label}.`);
+    return;
+  }
+
+  if (action === "apply-smart-cleanup") {
+    const undo = captureUndoSnapshot("sikre batches uden talændring");
+    const transfers = applyHighConfidenceTransferMatches({ noImpactOnly: true });
+    const categories = applySafeCategorySuggestions(88);
+    const movements = applyHighConfidenceMoneyMovementSuggestions({ noImpactOnly: true });
+    const changed = transfers + categories.changed + movements;
+    commitUndoSnapshot(undo, changed);
+    saveState();
+    render();
+    notify(changed ? `Sikre batches uden talændring kørt: ${transfers} overførsler, ${categories.changed} kategorier og ${movements} flytninger.` : "Ingen sikre batches uden talændring at køre lige nu.");
+    return;
+  }
+
+  if (action === "apply-auto-safe-transfer-matches") {
+    const undo = captureUndoSnapshot("konto-match uden talændring");
+    const changed = applyHighConfidenceTransferMatches({ noImpactOnly: true });
+    commitUndoSnapshot(undo, changed);
+    saveState();
+    render();
+    notify(changed ? `${changed} kontooverførsel${changed === 1 ? "" : "er"} blev afstemt uden at ændre nøgletal.` : "Ingen konto-match uden talændring lige nu.");
+    return;
+  }
+
+  if (action === "apply-auto-safe-money-movements") {
+    const undo = captureUndoSnapshot("flytninger uden talændring");
+    const changed = applyHighConfidenceMoneyMovementSuggestions({ noImpactOnly: true });
+    commitUndoSnapshot(undo, changed);
+    saveState();
+    render();
+    notify(changed ? `${changed} flytteforslag blev anvendt uden at ændre nøgletal.` : "Ingen flytteforslag uden talændring lige nu.");
+    return;
+  }
+
+  if (action === "approve-periodization-group") {
+    const undo = captureUndoSnapshot("månedsskifte-batch");
+    const changed = approvePeriodizationGroup(button.dataset.group || "");
+    commitUndoSnapshot(undo, changed);
+    saveState();
+    render();
+    notify(changed ? `${changed} månedsskiftepostering${changed === 1 ? "" : "er"} blev godkendt.` : "Ingen posteringer matchede batchen.");
+    return;
+  }
+
+  if (action === "apply-category-suggestion-batch") {
+    const categoryId = button.dataset.category || "";
+    const confidence = Number(button.dataset.confidence || 78);
+    const undo = captureUndoSnapshot("kategori-batch");
+    const result = applyCategorySuggestionBatch(categoryId, confidence);
+    commitUndoSnapshot(undo, result.changed);
+    saveState();
+    render();
+    notify(result.changed ? `${result.changed} postering${result.changed === 1 ? "" : "er"} blev sat til ${categoryById(categoryId)?.name || "kategori"}${result.rulesCreated ? `, og ${result.rulesCreated} regel${result.rulesCreated === 1 ? "" : "regler"} blev oprettet` : ""}.` : "Ingen kategori-batch kunne anvendes.");
+    return;
+  }
+
+  if (action === "apply-safe-category-suggestions") {
+    const undo = captureUndoSnapshot("sikre kategorier");
+    const result = applySafeCategorySuggestions(88);
+    commitUndoSnapshot(undo, result.changed);
+    saveState();
+    render();
+    notify(result.changed ? `${result.changed} sikre kategori-postering${result.changed === 1 ? "" : "er"} blev valideret.` : "Ingen sikre kategori-forslag lige nu.");
+    return;
+  }
+
+  if (action === "transactions-page") {
+    const totalRows = getFilteredTransactions().length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / Number(ui.transactionsPageSize || 75)));
+    const page = button.dataset.page || "1";
+    if (page === "prev") ui.transactionsPage = Math.max(1, ui.transactionsPage - 1);
+    else if (page === "next") ui.transactionsPage = Math.min(totalPages, ui.transactionsPage + 1);
+    else ui.transactionsPage = Math.max(1, Math.min(totalPages, Number(page) || 1));
+    render();
+    return;
+  }
+
+  if (action === "close-drawer") {
+    ui.drawer = null;
+    ui.drawerTxId = null;
+    render();
+    return;
+  }
+
+  if (action === "report-tab") {
+    ui.view = "rapporter";
+    ui.reportMode = button.dataset.report || "udgifter";
+    ui.drawer = null;
+    ui.drawerTxId = null;
+    render();
+    return;
+  }
+
+  if (action === "open-report") {
+    ui.view = "rapporter";
+    ui.reportMode = button.dataset.report || "udgifter";
+    ui.drawer = null;
+    ui.drawerTxId = null;
+    render();
+    return;
+  }
+
+  if (action === "open-drilldown") {
+    ui.drawer = buildDrilldown(button.dataset.drilldown || "category", button.dataset.id || "");
+    ui.drawerTxId = null;
+    render();
+    return;
+  }
+
+  if (action === "open-transaction") {
+    ui.drawerTxId = id;
+    ui.drawer = null;
+    render();
+    return;
+  }
+
+  if (action === "period-preset") {
+    ui.transactionsPage = 1;
+    setPeriodPreset(button.dataset.preset || "month");
+    saveState();
+    render();
+    return;
+  }
+
+  if (action === "date-basis") {
+    ui.dateBasis = button.dataset.basis === "bank" ? "bank" : "economic";
+    saveState();
+    render();
+    notify(ui.dateBasis === "economic" ? "Viser økonomisk måned." : "Viser rå bankdatoer.");
+    return;
+  }
+
+  if (action === "privacy-toggle") {
+    ui.privacyMode = !ui.privacyMode;
+    saveState();
+    render();
+    notify(ui.privacyMode ? "Privat visning er slået til — beløb og nøgletal er skjult." : "Privat visning er slået fra.");
+    return;
+  }
+
+  if (action === "apply-periodization") {
+    const result = applyPeriodizationToTransactions({ force: false });
+    saveState();
+    render();
+    notify(result.changed ? `${result.changed} periodiseringsforslag blev opdateret.` : "Periodiseringsforslag er allerede opdaterede.");
+    return;
+  }
+
+  if (action === "period-use-bank") {
+    const tx = state.transactions.find((item) => item.id === id);
+    if (tx) {
+      const bankMonth = toMonthKey(tx.date);
+      tx.periodMonth = bankMonth;
+      tx.periodDate = uiMonthStart(bankMonth);
+      tx.periodRule = "manual-bankdate";
+      tx.periodConfidence = 100;
+      tx.periodReason = "Manuelt sat til bankdato.";
+      tx.periodLocked = true;
+      tx.updatedAt = new Date().toISOString();
+      saveState();
+      render();
+      notify("Posteringen bruger nu bankdato i økonomisk måned.");
+    }
+    return;
+  }
+
+  if (action === "period-use-suggestion") {
+    const tx = state.transactions.find((item) => item.id === id);
+    if (tx) {
+      const info = getEconomicPeriodInfo(tx, { ignoreLock: true });
+      tx.periodMonth = info.periodMonth;
+      tx.periodDate = info.periodDate;
+      tx.periodRule = info.rule;
+      tx.periodConfidence = 100;
+      tx.periodReason = `Godkendt: ${info.reason}`;
+      tx.periodLocked = true;
+      tx.updatedAt = new Date().toISOString();
+      saveState();
+      render();
+      notify("Periodiseringen blev godkendt.");
+    }
+    return;
+  }
+
+  if (action === "sync-latest") {
+    await syncLatestBankData();
+    return;
+  }
+
+  if (action === "eb-status") {
+    await refreshEnableBankingStatus();
+    return;
+  }
+
+  if (action === "eb-diagnostics") {
+    await runEnableBankingDiagnostics();
+    return;
+  }
+
+  if (action === "eb-generate-keys") {
+    await generateEnableBankingKeys();
+    return;
+  }
+
+  if (action === "eb-connect") {
+    await startEnableBankingConsent();
+    return;
+  }
+
+  if (action === "eb-accounts") {
+    await refreshEnableBankingAccounts();
+    return;
+  }
+
+  if (action === "eb-sync") {
+    await syncEnableBankingTransactions();
+    return;
+  }
+
+  if (action === "eb-sync-range") {
+    const months = Number(button.dataset.months || 6);
+    ui.syncDateFrom = uiMonthStart(shiftMonth(currentMonthKey(), -(months - 1)));
+    ui.syncDateTo = todayISO();
+    await syncEnableBankingTransactions();
+    return;
+  }
+
+  if (action === "local-csv-load") {
+    await loadLocalCsvFolder();
+    return;
+  }
+
+  if (action === "gc-status") {
+    await refreshGoCardlessStatus();
+    return;
+  }
+
+  if (action === "gc-diagnostics") {
+    await runGoCardlessDiagnostics();
+    return;
+  }
+
+  if (action === "gc-connect") {
+    await startGoCardlessConsent();
+    return;
+  }
+
+  if (action === "gc-accounts") {
+    await refreshGoCardlessAccounts();
+    return;
+  }
+
+  if (action === "gc-sync") {
+    await syncGoCardlessTransactions();
+    return;
+  }
+
+  if (action === "cancel-edit") {
+    ui.editingId = null;
+    render();
+  }
+
+  if (action === "delete-account") {
+    const account = accountById(id);
+    if (!account) return;
+    const count = transactionCountForAccount(id);
+    if (count > 0) {
+      notify(`Kontoen bruges af ${count} postering${count === 1 ? "" : "er"}. Flyt eller slet dem først.`, "danger");
+      return;
+    }
+    if (confirm(`Slet kontoen “${account.name}”?`)) {
+      state.accounts = state.accounts.filter((item) => item.id !== id);
+      if (ui.importAccountId === id) ui.importAccountId = state.accounts[0]?.id || "";
+      saveState();
+      notify("Kontoen blev slettet.");
+    }
+  }
+
+  if (action === "delete-category") {
+    const category = categoryById(id);
+    if (!category) return;
+    const count = transactionCountForCategory(id);
+    if (count > 0) {
+      notify(`Kategorien bruges af ${count} postering${count === 1 ? "" : "er"}. Skift kategori på dem først.`, "danger");
+      return;
+    }
+    if (confirm(`Slet kategorien “${category.name}”?`)) {
+      state.categories = state.categories.filter((item) => item.id !== id);
+      state.rules = state.rules.filter((rule) => rule.categoryId !== id);
+      saveState();
+      notify("Kategorien blev slettet.");
+    }
+  }
+
+  if (action === "delete-rule") {
+    state.rules = state.rules.filter((rule) => rule.id !== id);
+    saveState();
+    notify("Reglen blev slettet.");
+  }
+
+  if (action === "apply-rules") {
+    const result = improveCategorizationForRows(getPeriodTransactions(), { onlyUncertain: true });
+    saveState();
+    notify(result.changed ? `${result.changed} postering${result.changed === 1 ? "" : "er"} blev kategoriseret bedre.` : "Ingen usikre poster matchede regler eller knowhow-bank.");
+  }
+
+  if (action === "improve-categories") {
+    const result = improveCategorizationForRows(getPeriodTransactions(), { onlyUncertain: false });
+    saveState();
+    notify(result.changed ? `${result.changed} kategori${result.changed === 1 ? "" : "er"} blev forbedret med MCC/regler/knowhow.` : "Ingen kategorier kunne forbedres lige nu.");
+  }
+
+  if (action === "apply-relations-from-notes") {
+    const changed = applyRelationsFromNotes();
+    saveState();
+    notify(changed ? `${changed} postering${changed === 1 ? "" : "er"} fik relation fra note.` : "Ingen noter gav nye relationer endnu.");
+  }
+
+  if (action === "bulk-category-group") {
+    const merchant = button.dataset.merchant || "";
+    const categoryId = button.dataset.category || "";
+    const result = applyCategoryToMerchantGroup(merchant, categoryId);
+    saveState();
+    notify(result.changed ? `${result.changed} postering${result.changed === 1 ? "" : "er"} blev sat til ${categoryById(categoryId)?.name || "kategori"}${result.ruleCreated ? " og der blev oprettet en regel" : ""}.` : "Ingen posteringer blev ændret.");
+    return;
+  }
+
+  if (action === "validate-current-category-group") {
+    const merchant = button.dataset.merchant || "";
+    const result = validateCurrentCategoryForMerchantGroup(merchant);
+    saveState();
+    notify(result.changed ? `${result.changed} postering${result.changed === 1 ? "" : "er"} blev godkendt som ${result.categoryName || "nuværende kategori"}.` : "Ingen posteringer kunne godkendes.", result.changed ? "info" : "danger");
+    return;
+  }
+
+  if (action === "mark-transaction-category") {
+    const categoryId = button.dataset.category || "";
+    const changed = applyCategoryToTransaction(id, categoryId);
+    saveState();
+    notify(changed ? `Posteringen blev markeret som ${categoryById(categoryId)?.name || "valgt kategori"}.` : "Posteringen kunne ikke opdateres.");
+  }
+
+  if (action === "remove-overlaps") {
+    const undo = captureUndoSnapshot("fjern overlap");
+    const result = removeOverlapDuplicates();
+    commitUndoSnapshot(undo, result.removed);
+    saveState();
+    render();
+    notify(result.removed ? `${result.removed} overlap/dublet${result.removed === 1 ? "" : "ter"} blev fjernet automatisk.` : "Ingen overlap fundet lige nu.");
+    return;
+  }
+
+  if (action === "apply-transfer-match") {
+    const outTx = state.transactions.find((item) => item.id === button.dataset.out);
+    const inTx = state.transactions.find((item) => item.id === button.dataset.in);
+    const changed = outTx && inTx ? applyInternalTransferMatch(outTx, inTx) : false;
+    saveState();
+    notify(changed ? "Kontooverførslen blev afstemt og fjernet fra forbrugsstatistikken." : "Match kunne ikke afstemmes.");
+  }
+
+  if (action === "apply-transfer-matches") {
+    const undo = captureUndoSnapshot("sikre konto-match");
+    const changed = applyHighConfidenceTransferMatches();
+    commitUndoSnapshot(undo, changed);
+    saveState();
+    render();
+    notify(changed ? `${changed} kontooverførsel${changed === 1 ? "" : "er"} blev afstemt.` : "Der var ingen sikre konto-match at afstemme.");
+  }
+
+  if (action === "apply-all-transfer-matches") {
+    const undo = captureUndoSnapshot("alle viste konto-match");
+    const matches = findTransferMatchesForRows(getPeriodTransactions());
+    let changed = 0;
+    for (const match of matches) {
+      if (applyInternalTransferMatch(match.outTx, match.inTx)) changed += 1;
+    }
+    commitUndoSnapshot(undo, changed);
+    saveState();
+    render();
+    notify(changed ? `${changed} viste konto-match blev afstemt.` : "Der var ingen konto-match at afstemme.");
+  }
+
+  if (action === "apply-money-movement") {
+    const tx = state.transactions.find((item) => item.id === id);
+    const suggestion = tx ? getMoneyMovementSuggestion(tx) : null;
+    const changed = tx && suggestion?.categoryId ? applyCategoryToTransaction(tx.id, suggestion.categoryId, { relationType: suggestion.relationType, relationKey: categoryById(suggestion.categoryId)?.name }) : false;
+    saveState();
+    notify(changed ? `Forslaget blev anvendt: ${categoryById(suggestion.categoryId)?.name}.` : "Forslaget kunne ikke anvendes.");
+  }
+
+  if (action === "add-default-accounts") {
+    const before = state.accounts.length;
+    state.accounts = mergeAccountsByName(state.accounts, createSeedState().accounts);
+    ui.importAccountId ||= state.accounts[0]?.id || "";
+    saveState();
+    const added = state.accounts.length - before;
+    notify(added ? `${added} ${added === 1 ? "standardkonto" : "standardkonti"} blev tilføjet.` : "Standardkonti er allerede klar.");
+  }
+
+  if (action === "apply-money-movement-suggestions") {
+    const undo = captureUndoSnapshot("sikre flytninger");
+    const changed = applyHighConfidenceMoneyMovementSuggestions();
+    commitUndoSnapshot(undo, changed);
+    saveState();
+    render();
+    notify(changed ? `${changed} sikre forslag blev anvendt.` : "Der var ingen sikre forslag at anvende.");
+  }
+
+  if (action === "import-csv") {
+    importDraftTransactions();
+  }
+
+  if (action === "export-backup") {
+    exportBackup();
+  }
+
+  if (action === "trigger-delta-import") {
+    document.querySelector("#delta-csv-file")?.click();
+    return;
+  }
+
+  if (action === "refresh-market-prices") {
+    await refreshDeltaMarketPrices();
+    return;
+  }
+
+  if (action === "trigger-backup-import") {
+    document.querySelector("#backup-file")?.click();
+    return;
+  }
+
+  if (action === "reset-demo") {
+    if (confirm("Nulstil til tom start? Dine nuværende posteringer overskrives.")) {
+      state = createSeedState();
+      ui = { ...ui, month: state.settings.selectedMonth, periodMode: "month", periodFrom: uiMonthStart(state.settings.selectedMonth), periodTo: uiMonthEnd(state.settings.selectedMonth), query: "", categoryFilter: "all", accountFilter: "all", editingId: null, importDraft: null, importAccountId: state.accounts[0]?.id || "", importOnlyMonth: true, importMonth: shiftMonth(currentMonthKey(), -1) };
+      saveState();
+      notify("Appen er nulstillet uden dummy-data.");
+    }
+  }
+
+  if (action === "clear-data") {
+    if (confirm("Ryd alle posteringer, men behold konti, kategorier og regler?")) {
+      state.transactions = [];
+      const resetMonth = shiftMonth(currentMonthKey(), -1);
+      ui = { ...ui, month: resetMonth, periodMode: "month", periodFrom: uiMonthStart(resetMonth), periodTo: uiMonthEnd(resetMonth), query: "", categoryFilter: "all", accountFilter: "all", editingId: null, importDraft: null };
+      saveState();
+      notify("Alle posteringer er ryddet.");
+    }
+  }
+}
+
+async function handleSubmit(event) {
+  const formId = event.target?.getAttribute?.("id") || "";
+  if (formId === "eb-setup-form") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const appId = String(form.get("appId") || "").trim();
+    if (!appId) {
+      notify("Application ID fra Enable Banking skal udfyldes.", "danger");
+      return;
+    }
+    try {
+      const diagnostics = await apiFetch("/api/enablebanking/setup", {
+        method: "POST",
+        body: {
+          appId,
+          aspspName: String(form.get("aspspName") || "Sparekassen Kronjylland"),
+          country: String(form.get("country") || "DK"),
+          language: String(form.get("language") || "da"),
+          psuType: "personal",
+        },
+      });
+      const eb = getBankSyncState().enableBanking;
+      eb.diagnostics = diagnostics;
+      eb.config = { ...(eb.config || {}), ...diagnostics };
+      saveState();
+      event.target.reset();
+      notify(diagnostics.jwt?.ok && diagnostics.api?.ok ? "Enable Banking er klar til MitID-samtykke." : "Application ID er gemt, men diagnose viser stadig noget der skal tjekkes.", diagnostics.jwt?.ok && diagnostics.api?.ok ? "info" : "danger");
+    } catch (error) {
+      notify(`Kunne ikke gemme Enable Banking-opsætning: ${error.message}`, "danger");
+    }
+    return;
+  }
+
+  if (formId === "gc-keys-form") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const secretId = String(form.get("secretId") || "").trim();
+    const secretKey = String(form.get("secretKey") || "").trim();
+    if (!secretId || !secretKey) {
+      notify("Secret ID og Secret Key skal udfyldes.", "danger");
+      return;
+    }
+    try {
+      const diagnostics = await apiFetch("/api/gocardless/setup", {
+        method: "POST",
+        body: {
+          secretId,
+          secretKey,
+          institutionId: String(form.get("institutionId") || "SPAREKASSEN_KRONJYLLAND_KRONDK22"),
+          country: String(form.get("country") || "DK"),
+        },
+      });
+      const bankSync = getBankSyncState();
+      bankSync.diagnostics = diagnostics;
+      bankSync.config = { ...(bankSync.config || {}), configured: diagnostics.configured, institutionId: diagnostics.institutionId, country: diagnostics.country };
+      saveState();
+      event.target.reset();
+      notify(diagnostics.token?.ok && diagnostics.institution?.ok ? "Keys er gemt, og GoCardless er klar." : "Keys er gemt, men diagnose viser stadig noget der skal tjekkes.", diagnostics.token?.ok && diagnostics.institution?.ok ? "info" : "danger");
+    } catch (error) {
+      notify(`Kunne ikke gemme GoCardless keys: ${error.message}`, "danger");
+    }
+    return;
+  }
+
+  if (formId === "tx-form") {
+    event.preventDefault();
+    notify("Manuelle posteringer er slået fra. Brug Opdatér eller Bankdata, så alt kommer via Open Banking.", "danger");
+  }
+
+  if (formId === "drawer-tx-form") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const tx = state.transactions.find((item) => item.id === String(form.get("id")));
+    if (!tx) {
+      notify("Posteringen kunne ikke gemmes.", "danger");
+      return;
+    }
+    const selectedCategoryId = String(form.get("categoryId") || tx.categoryId);
+    let relationType = String(form.get("relationType") || "");
+    const impliedRelation = relationTypeForCategory(selectedCategoryId);
+    if (!relationType && impliedRelation) relationType = impliedRelation;
+    if (relationType && categoryForRelationType(relationType) && categoryForRelationType(relationType) !== selectedCategoryId && !impliedRelation) relationType = "";
+    tx.note = String(form.get("note") || "").trim();
+    tx.relationType = relationType;
+    tx.relationKey = relationType ? String(form.get("relationKey") || "").trim() : "";
+    tx.categoryId = selectedCategoryId;
+    tx.categorySource = "manual";
+    tx.categoryConfidence = 100;
+    tx.categoryReason = "Manuelt valideret";
+    tx.needsReview = false;
+    tx.updatedAt = new Date().toISOString();
+    saveState();
+    notify("Posteringen blev gemt.");
+    render();
+  }
+
+  if (formId === "account-form") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const balance = parseAmount(form.get("balance"));
+    const account = {
+      id: uid("acc"),
+      name: String(form.get("name") || "").trim(),
+      type: String(form.get("type") || "Bankkonto").trim(),
+      balance: Number.isFinite(balance) ? balance : 0,
+    };
+    state.accounts.push(account);
+    ui.importAccountId ||= account.id;
+    event.target.reset();
+    saveState();
+    notify("Kontoen blev tilføjet.");
+  }
+
+  if (formId === "category-form") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const category = {
+      id: uid("cat"),
+      name: String(form.get("name") || "").trim(),
+      kind: String(form.get("kind") || "expense"),
+      color: String(form.get("color") || "#245f56"),
+    };
+    state.categories.push(category);
+    event.target.reset();
+    saveState();
+    notify("Kategorien blev tilføjet.");
+  }
+
+  if (formId === "rule-form") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    const keyword = String(form.get("keyword") || "").trim().toLowerCase();
+    if (!keyword) {
+      notify("Reglen mangler tekst.", "danger");
+      return;
+    }
+    state.rules.push({ id: uid("rule"), keyword, categoryId: String(form.get("categoryId")) });
+    event.target.reset();
+    saveState();
+    notify("Reglen blev tilføjet.");
+  }
+
+  if (formId === "settings-form") {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    state.settings.householdName = String(form.get("householdName") || "Husstanden").trim();
+    state.settings.members = String(form.get("members") || "").trim();
+    saveState();
+    notify("Indstillingerne blev gemt.");
+  }
+}
+
+function handleChange(event) {
+  const target = event.target;
+
+  if (target.id === "period-mode") {
+    ui.transactionsPage = 1;
+    ui.periodMode = target.value === "range" ? "range" : "month";
+    if (ui.periodMode === "month") setMonthPeriod(ui.month);
+    else {
+      const range = activeDateRange();
+      ui.periodFrom = range.from;
+      ui.periodTo = range.to;
+    }
+    saveState();
+    render();
+  }
+
+  if (target.id === "month-select") {
+    ui.transactionsPage = 1;
+    setMonthPeriod(target.value);
+    saveState();
+    render();
+  }
+
+  if (target.id === "period-from" || target.id === "period-to") {
+    ui.transactionsPage = 1;
+    ui.periodMode = "range";
+    if (target.id === "period-from") ui.periodFrom = target.value;
+    if (target.id === "period-to") ui.periodTo = target.value;
+    const range = normalizeDateRange(ui.periodFrom, ui.periodTo);
+    ui.periodFrom = range.from;
+    ui.periodTo = range.to;
+    ui.month = toMonthKey(ui.periodTo);
+    saveState();
+    render();
+  }
+
+  if (target.id === "category-filter") {
+    ui.categoryFilter = target.value;
+    ui.transactionsPage = 1;
+    render();
+  }
+
+  if (target.id === "account-filter") {
+    ui.accountFilter = target.value;
+    ui.transactionsPage = 1;
+    render();
+  }
+
+  if (target.id === "transactions-page-size") {
+    ui.transactionsPageSize = Number(target.value || 75);
+    ui.transactionsPage = 1;
+    render();
+  }
+
+  if (target.id === "report-account-filter") {
+    ui.reportAccountFilter = target.value;
+    ui.drawer = null;
+    ui.drawerTxId = null;
+    render();
+  }
+
+  if (target.id === "wealth-primary-account") {
+    const wealth = getWealthSettings();
+    wealth.primaryCashAccountId = target.value;
+    saveState();
+    render();
+    notify("Primær lønkonto til formueoverblik blev opdateret.");
+    return;
+  }
+
+  if (target.dataset.wealthProperty && target.dataset.wealthField) {
+    const wealth = getWealthSettings();
+    const property = wealth.properties.find((item) => item.id === target.dataset.wealthProperty);
+    const amount = parseAmount(target.value);
+    if (!property || !Number.isFinite(amount)) {
+      notify("Beløbet kunne ikke læses. Brug fx 4.500.000 eller 4500000.", "danger");
+      render();
+      return;
+    }
+    property[target.dataset.wealthField] = Math.max(0, amount);
+    saveState();
+    render();
+    notify("Formueoverblik blev opdateret.");
+    return;
+  }
+
+  if (target.id === "wealth-pension-provider") {
+    const wealth = getWealthSettings();
+    wealth.pension.provider = target.value.trim() || "Pension";
+    saveState();
+    render();
+    notify("Pensionsudbyder blev opdateret.");
+    return;
+  }
+
+  if (target.id === "wealth-pension-value") {
+    const wealth = getWealthSettings();
+    const amount = parseAmount(target.value);
+    if (!Number.isFinite(amount)) {
+      notify("Pensionsbeløbet kunne ikke læses. Brug fx 865.000.", "danger");
+      render();
+      return;
+    }
+    wealth.pension.value = Math.max(0, amount);
+    saveState();
+    render();
+    notify("Pension blev opdateret i formueoverblikket.");
+    return;
+  }
+
+  if (target.id === "import-account") {
+    ui.importAccountId = target.value;
+    render();
+  }
+
+  if (target.id === "import-month") {
+    ui.importMonth = target.value || shiftMonth(currentMonthKey(), -1);
+    render();
+  }
+
+  if (target.id === "import-only-month") {
+    ui.importOnlyMonth = target.checked;
+    render();
+  }
+
+  if (target.id === "sync-date-from") {
+    ui.syncDateFrom = target.value || ui.syncDateFrom;
+    render();
+  }
+
+  if (target.id === "sync-date-to") {
+    ui.syncDateTo = target.value || ui.syncDateTo;
+    render();
+  }
+
+  if (target.id === "gc-auto-sync") {
+    const bankSync = getBankSyncState();
+    bankSync.autoSyncOnOpen = target.checked;
+    saveState();
+    notify(target.checked ? "Automatisk sync ved app-start er slået til." : "Automatisk sync ved app-start er slået fra.");
+  }
+
+  if (target.dataset.ebMap) {
+    const bankSync = getBankSyncState();
+    bankSync.accountMappings[target.dataset.ebMap] = target.value;
+    saveState();
+    notify("Enable Banking-kontomapping blev gemt.");
+  }
+
+  if (target.dataset.gcMap) {
+    const bankSync = getBankSyncState();
+    bankSync.accountMappings[target.dataset.gcMap] = target.value;
+    saveState();
+    notify("Kontomapping blev gemt.");
+  }
+
+  if (target.dataset.draftAccount && ui.importDraft?.files) {
+    const draft = ui.importDraft.files[Number(target.dataset.draftAccount)];
+    if (draft) draft.accountChoice = target.value;
+    render();
+  }
+
+  if (target.dataset.csvMap && ui.importDraft?.files) {
+    const draft = ui.importDraft.files[Number(target.dataset.draftIndex) || 0];
+    if (draft) draft.map[target.dataset.csvMap] = target.value;
+    render();
+  }
+
+  if (target.dataset.txCategory) {
+    const changed = applyCategoryToTransaction(target.dataset.txCategory, target.value, { reason: "Manuelt valideret" });
+    if (changed) {
+      saveState();
+      notify("Kategorien blev opdateret.");
+    } else {
+      notify("Kategorien kunne ikke opdateres.", "danger");
+      render();
+    }
+  }
+
+  if (target.dataset.accountBalance) {
+    const account = accountById(target.dataset.accountBalance);
+    const balance = parseAmount(target.value);
+    if (!account || !Number.isFinite(balance)) {
+      notify("Saldoen kunne ikke læses. Brug fx 12.345,67.", "danger");
+      render();
+      return;
+    }
+    account.balance = balance;
+    saveState();
+    notify("Saldoen blev opdateret.");
+  }
+
+  if (target.id === "csv-file" && target.files?.[0]) {
+    readCsvFiles(Array.from(target.files));
+  }
+
+  if (target.id === "delta-csv-file" && target.files?.[0]) {
+    readDeltaCsvFile(target.files[0]);
+  }
+
+  if (target.id === "backup-file" && target.files?.[0]) {
+    readBackupFile(target.files[0]);
+  }
+}
+
+function handleInput(event) {
+  if (event.target.id === "wealth-pension-provider") {
+    const wealth = getWealthSettings();
+    wealth.pension.provider = event.target.value.trim() || "Pension";
+    saveStateQuietly();
+    return;
+  }
+
+  if (event.target.id === "wealth-pension-value") {
+    const wealth = getWealthSettings();
+    const amount = parseAmount(event.target.value);
+    if (Number.isFinite(amount)) {
+      wealth.pension.value = Math.max(0, amount);
+      saveStateQuietly();
+    }
+    return;
+  }
+
+  if (event.target.dataset.wealthProperty && event.target.dataset.wealthField) {
+    const wealth = getWealthSettings();
+    const property = wealth.properties.find((item) => item.id === event.target.dataset.wealthProperty);
+    const amount = parseAmount(event.target.value);
+    if (property && Number.isFinite(amount)) {
+      property[event.target.dataset.wealthField] = Math.max(0, amount);
+      saveStateQuietly();
+    }
+    return;
+  }
+
+  if (event.target.id === "search-input") {
+    ui.query = event.target.value;
+    ui.transactionsPage = 1;
+    render();
+  }
+}
+
+function notify(text, kind = "info") {
+  ui.notice = { text, kind };
+  clearTimeout(noticeTimer);
+  render();
+  const liveRegion = document.querySelector("#live-region");
+  if (liveRegion) liveRegion.textContent = text;
+  noticeTimer = setTimeout(() => {
+    ui.notice = null;
+    render();
+  }, 4200);
+}
+
+function focusSoon(selector) {
+  window.setTimeout(() => document.querySelector(selector)?.focus(), 50);
+}
+
+function setMonthPeriod(month) {
+  ui.month = month || currentMonthKey();
+  ui.periodMode = "month";
+  ui.periodFrom = uiMonthStart(ui.month);
+  ui.periodTo = uiMonthEnd(ui.month);
+}
+
+function setPeriodPreset(preset) {
+  const today = todayISO();
+  if (preset === "month") {
+    setMonthPeriod(currentMonthKey());
+    return;
+  }
+  if (preset === "prev-month") {
+    setMonthPeriod(shiftMonth(currentMonthKey(), -1));
+    return;
+  }
+  if (preset === "90d") {
+    ui.periodMode = "range";
+    ui.periodFrom = shiftDate(today, -89);
+    ui.periodTo = today;
+    ui.month = toMonthKey(today);
+    return;
+  }
+  if (preset === "ytd") {
+    ui.periodMode = "range";
+    ui.periodFrom = `${today.slice(0, 4)}-01-01`;
+    ui.periodTo = today;
+    ui.month = toMonthKey(today);
+    return;
+  }
+  if (preset === "all") {
+    const dates = state.transactions.map((tx) => tx.date).filter(Boolean).sort();
+    ui.periodMode = "range";
+    ui.periodFrom = dates[0] || uiMonthStart(ui.month || currentMonthKey());
+    ui.periodTo = dates.at(-1) || today;
+    ui.month = toMonthKey(ui.periodTo);
+  }
+}
+
+function isPeriodPresetActive(preset) {
+  const range = activeDateRange();
+  if (preset === "month") return ui.periodMode === "month" && ui.month === currentMonthKey();
+  if (preset === "prev-month") return ui.periodMode === "month" && ui.month === shiftMonth(currentMonthKey(), -1);
+  const today = todayISO();
+  if (preset === "90d") return ui.periodMode === "range" && range.from === shiftDate(today, -89) && range.to === today;
+  if (preset === "ytd") return ui.periodMode === "range" && range.from === `${today.slice(0, 4)}-01-01` && range.to === today;
+  if (preset === "all") {
+    const dates = state.transactions.map((tx) => tx.date).filter(Boolean).sort();
+    return ui.periodMode === "range" && Boolean(dates.length) && range.from === dates[0] && range.to === dates.at(-1);
+  }
+  return false;
+}
+
+function activeDateRange() {
+  if (ui.periodMode === "range") return normalizeDateRange(ui.periodFrom, ui.periodTo);
+  return { from: uiMonthStart(ui.month), to: uiMonthEnd(ui.month) };
+}
+
+function normalizeDateRange(from, to) {
+  const fallbackMonth = ui.month || currentMonthKey();
+  let start = isIsoDate(from) ? from : uiMonthStart(fallbackMonth);
+  let end = isIsoDate(to) ? to : todayISO();
+  if (start > end) [start, end] = [end, start];
+  return { from: start, to: end };
+}
+
+function activePeriodLabel() {
+  const { from, to } = activeDateRange();
+  if (ui.periodMode === "month") return monthLabel(ui.month);
+  if (from === to) return formatDate(from);
+  return `${formatDate(from)} → ${formatDate(to)}`;
+}
+
+function isIsoDate(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+function getEconomicPeriodInfo(tx, { ignoreLock = false } = {}) {
+  const bankDate = isIsoDate(tx?.date) ? tx.date : todayISO();
+  const bankMonth = toMonthKey(bankDate);
+  if (!ignoreLock && tx?.periodLocked && tx.periodMonth) {
+    return {
+      periodMonth: tx.periodMonth,
+      periodDate: tx.periodDate || uiMonthStart(tx.periodMonth),
+      rule: tx.periodRule || "manual",
+      confidence: tx.periodConfidence || 100,
+      reason: tx.periodReason || "Manuelt periodiseret",
+      moved: tx.periodMonth !== bankMonth,
+    };
+  }
+
+  const day = Number(bankDate.slice(8, 10));
+  const nextMonth = shiftMonth(bankMonth, 1);
+  const text = normalize(`${tx?.description || ""} ${tx?.note || ""} ${tx?.relationKey || ""} ${accountById(tx?.accountId)?.name || ""}`);
+  const category = categoryById(tx?.categoryId);
+  const amount = Number(tx?.amount || 0);
+  const explicitDue = text.match(/forfaldsdato\s*(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})/);
+  if (explicitDue) {
+    let year = Number(explicitDue[3]);
+    if (year < 100) year += 2000;
+    const dueMonth = `${year}-${String(Number(explicitDue[2])).padStart(2, "0")}`;
+    return periodInfo(bankMonth, dueMonth, "forfaldsdato", 96, "Teksten angiver forfaldsmåned.");
+  }
+
+  const isSalary = amount > 0 && (tx?.categoryId === "cat-salary" || /\b(lonoverforsel|lønoverførsel|loenoverfoersel|løn|loen|salary)\b/.test(text));
+  if (isSalary && day >= 25) return periodInfo(bankMonth, nextMonth, "salary-next-month", 98, "Løn sidst i måneden hører til næste økonomiske måned.");
+
+  const fixedMonthEnd = day >= 25 && /(forsikring|vuggestue|institution|budget|faelles|fælles|sommerhuskonto|indbetaling|overfort fra kredit|overført fra kredit|praemiebetaling|præmiebetaling)/.test(text);
+  if (fixedMonthEnd) return periodInfo(bankMonth, nextMonth, "fixed-month-end-next-month", 88, "Fast månedsskiftebetaling periodiseres til næste måned.");
+
+  const transferMonthEnd = day >= 25 && (category?.kind === "transfer" || /(overfort til|overført til|til faelles|til fælles|til sommerhuskonto|egen konto|indlan|indlån|bank norwegian)/.test(text));
+  if (transferMonthEnd) return periodInfo(bankMonth, nextMonth, "transfer-month-end-next-month", 82, "Månedsskifteoverførsel hører til næste økonomiske måned.");
+
+  return periodInfo(bankMonth, bankMonth, "bank-date", 100, "Bankdato bruges som økonomisk dato.");
+}
+
+function periodInfo(bankMonth, periodMonth, rule, confidence, reason) {
+  return {
+    periodMonth,
+    periodDate: uiMonthStart(periodMonth),
+    rule,
+    confidence,
+    reason,
+    moved: periodMonth !== bankMonth,
+  };
+}
+
+function applyPeriodizationToTransactions({ force = false } = {}) {
+  let changed = 0;
+  for (const tx of state.transactions) {
+    if (tx.periodLocked && !force) continue;
+    const info = getEconomicPeriodInfo(tx, { ignoreLock: true });
+    if (tx.periodMonth !== info.periodMonth || tx.periodRule !== info.rule || tx.periodConfidence !== info.confidence) {
+      tx.periodMonth = info.periodMonth;
+      tx.periodDate = info.periodDate;
+      tx.periodRule = info.rule;
+      tx.periodConfidence = info.confidence;
+      tx.periodReason = info.reason;
+      tx.updatedAt = new Date().toISOString();
+      changed += 1;
+    }
+  }
+  return { changed };
+}
+
+function getAccrualAllocation(tx) {
+  const text = normalize(`${tx?.description || ""} ${accountById(tx?.accountId)?.name || ""}`);
+  if (!(Number(tx?.amount || 0) < 0)) return null;
+  const isQuarterlyLoan = /(totalkredit|realkredit|realkreditlån|realkreditlaan)/.test(text);
+  const isQuarterlyCommon = /(e\/f|ef |fællesudgift|faellesudgift|ejerforening)/.test(text);
+  if (!isQuarterlyLoan && !isQuarterlyCommon) return null;
+  const anchor = toMonthKey(tx.date);
+  const months = [shiftMonth(anchor, -2), shiftMonth(anchor, -1), anchor];
+  return {
+    months,
+    rule: isQuarterlyLoan ? "quarterly-loan-accrual" : "quarterly-common-cost-accrual",
+    confidence: 92,
+    reason: isQuarterlyLoan ? "Realkredit/Totalkredit fordeles over de forgangne 3 måneder." : "Fællesudgift/ejerforening fordeles over de forgangne 3 måneder.",
+  };
+}
+
+function expandTransactionForReporting(tx, basis = ui.dateBasis) {
+  if (basis === "bank") return [{ ...tx, reportDate: tx.date, reportMonth: toMonthKey(tx.date), bankDate: tx.date }];
+  const accrual = getAccrualAllocation(tx);
+  if (accrual) {
+    return accrual.months.map((month, index) => ({
+      ...tx,
+      reportDate: uiMonthStart(month),
+      reportMonth: month,
+      bankDate: tx.date,
+      amount: Number(tx.amount || 0) / accrual.months.length,
+      originalAmount: Number(tx.amount || 0),
+      allocated: true,
+      allocationIndex: index + 1,
+      allocationMonths: accrual.months.length,
+      allocationRule: accrual.rule,
+      periodRule: accrual.rule,
+      periodReason: accrual.reason,
+      periodConfidence: accrual.confidence,
+    }));
+  }
+  const info = getEconomicPeriodInfo(tx);
+  return [{ ...tx, reportDate: info.periodDate, reportMonth: info.periodMonth, bankDate: tx.date }];
+}
+
+function transactionDateForView(tx, basis = ui.dateBasis) {
+  if (tx.reportDate && basis !== "bank") return tx.reportDate;
+  if (basis === "bank") return tx.bankDate || tx.date;
+  return getEconomicPeriodInfo(tx).periodDate;
+}
+
+function transactionMonthForView(tx, basis = ui.dateBasis) {
+  return toMonthKey(transactionDateForView(tx, basis));
+}
+
+function sortTransactionsForView(a, b) {
+  const ad = transactionDateForView(a);
+  const bd = transactionDateForView(b);
+  if (ad !== bd) return bd.localeCompare(ad);
+  return sortTransactionsDesc(a, b);
+}
+
+function buildReportingRowsForDateRange(from, to, basis = ui.dateBasis) {
+  const range = normalizeDateRange(from, to);
+  const rows = state.transactions
+    .flatMap((tx) => expandTransactionForReporting(tx, basis))
+    .filter((tx) => {
+      const viewDate = transactionDateForView(tx, basis);
+      return viewDate >= range.from && viewDate <= range.to;
+    });
+  const sourceIds = new Set(rows.map((tx) => tx.id));
+  const matchWindowFrom = shiftDate(range.from, -7);
+  const matchWindowTo = shiftDate(range.to, 7);
+  const sourceRows = state.transactions.filter((tx) => {
+    if (sourceIds.has(tx.id)) return true;
+    const bankDate = tx.date || "";
+    const economicDate = transactionDateForView(tx, basis);
+    return (bankDate >= matchWindowFrom && bankDate <= matchWindowTo) || (economicDate >= matchWindowFrom && economicDate <= matchWindowTo);
+  });
+  const autoExcludedIds = getAutoExcludedTransferIdsForRows(sourceRows);
+  return rows
+    .map((tx) => autoExcludedIds.has(tx.id) ? { ...tx, autoExcludedTransfer: true } : tx)
+    .sort(sortTransactionsForView);
+}
+
+function getPeriodReportingTransactions() {
+  const { from, to } = activeDateRange();
+  return buildReportingRowsForDateRange(from, to);
+}
+
+function getReportingTransactionsForDateRange(from, to, basis = ui.dateBasis) {
+  return buildReportingRowsForDateRange(from, to, basis);
+}
+
+function getReportingTransactionsForMonth(month, basis = ui.dateBasis) {
+  return buildReportingRowsForDateRange(uiMonthStart(month), uiMonthEnd(month), basis)
+    .filter((tx) => transactionMonthForView(tx, basis) === month)
+    .sort(sortTransactionsForView);
+}
+
+function getPeriodTransactions() {
+  const { from, to } = activeDateRange();
+  return [...state.transactions]
+    .filter((tx) => {
+      const viewDate = transactionDateForView(tx);
+      return viewDate >= from && viewDate <= to;
+    })
+    .sort(sortTransactionsForView);
+}
+
+function getTransactionsForDateRange(from, to, basis = ui.dateBasis) {
+  const range = normalizeDateRange(from, to);
+  return [...state.transactions]
+    .filter((tx) => {
+      const viewDate = transactionDateForView(tx, basis);
+      return viewDate >= range.from && viewDate <= range.to;
+    })
+    .sort(sortTransactionsForView);
+}
+
+function getPeriodSummary() {
+  return summarizeTransactions(getPeriodReportingTransactions());
+}
+
+function isReportTransfer(tx) {
+  return Boolean(tx?.autoExcludedTransfer) || isInternalFundingInflow(tx) || categoryById(tx?.categoryId)?.kind === "transfer";
+}
+
+function isReportExpense(tx) {
+  return Number(tx?.amount || 0) < 0 && !isReportTransfer(tx);
+}
+
+function summarizeTransactions(rows) {
+  let income = 0;
+  let expenses = 0;
+  let incomeCount = 0;
+  for (const tx of rows) {
+    if (isReportTransfer(tx)) continue;
+    if (tx.amount >= 0) {
+      income += Number(tx.amount || 0);
+      incomeCount += 1;
+    } else {
+      expenses += Math.abs(Number(tx.amount || 0));
+    }
+  }
+  const savings = income - expenses;
+  const savingsRate = income > 0 ? savings / income : 0;
+  return { income, expenses, savings, savingsRate, incomeCount };
+}
+
+function getPeriodComparison() {
+  if (ui.periodMode === "month") return getDashboardComparison(ui.month);
+  const current = getPeriodSummary();
+  const { from, to } = activeDateRange();
+  const days = Math.max(1, Math.abs(daysBetween(to, from)) + 1);
+  const previousTo = shiftDate(from, -1);
+  const previousFrom = shiftDate(previousTo, -(days - 1));
+  const lastYearFrom = shiftDateByYears(from, -1);
+  const lastYearTo = shiftDateByYears(to, -1);
+  const previous = summarizeTransactions(getReportingTransactionsForDateRange(previousFrom, previousTo));
+  const lastYear = summarizeTransactions(getReportingTransactionsForDateRange(lastYearFrom, lastYearTo));
+  return {
+    current,
+    previous,
+    lastYear,
+    momExpenseDelta: current.expenses - previous.expenses,
+    yoyExpenseDelta: current.expenses - lastYear.expenses,
+    incomeCountLabel: `${current.incomeCount} indbetaling${current.incomeCount === 1 ? "" : "er"}`,
+    previousRange: { from: previousFrom, to: previousTo },
+    lastYearRange: { from: lastYearFrom, to: lastYearTo },
+  };
+}
+
+function getPeriodCategoryReportRows(accountFilter = ui.reportAccountFilter) {
+  return getCategoryReportRowsForRows(getPeriodReportingTransactions(), accountFilter);
+}
+
+function getCategoryReportRowsForRows(rows, accountFilter = ui.reportAccountFilter) {
+  const totals = new Map();
+  for (const tx of rows) {
+    const category = categoryById(tx.categoryId);
+    if (accountFilter !== "all" && tx.accountId !== accountFilter) continue;
+    if (!isReportExpense(tx)) continue;
+    const entry = totals.get(tx.categoryId) || { category, total: 0, count: 0 };
+    entry.total += Math.abs(Number(tx.amount || 0));
+    entry.count += 1;
+    totals.set(tx.categoryId, entry);
+  }
+  return Array.from(totals.values()).sort((a, b) => b.total - a.total);
+}
+
+function getPeriodMerchantReportRows(categoryId = "", accountFilter = ui.reportAccountFilter) {
+  return getMerchantReportRowsForRows(getPeriodReportingTransactions(), categoryId, accountFilter);
+}
+
+function getMerchantReportRowsForRows(rows, categoryId = "", accountFilter = ui.reportAccountFilter) {
+  const grouped = new Map();
+  for (const tx of rows) {
+    const category = categoryById(tx.categoryId);
+    if (accountFilter !== "all" && tx.accountId !== accountFilter) continue;
+    if (categoryId && tx.categoryId !== categoryId) continue;
+    if (!isReportExpense(tx)) continue;
+    const name = merchantName(tx.description);
+    const entry = grouped.get(name) || { name, total: 0, count: 0 };
+    entry.total += Math.abs(Number(tx.amount || 0));
+    entry.count += 1;
+    grouped.set(name, entry);
+  }
+  return Array.from(grouped.values()).sort((a, b) => b.total - a.total);
+}
+
+function getExpenseTransactionsForRows(rows) {
+  return rows
+    .filter(isReportExpense)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+}
+
+function getExpenseSummaryForRows(rows) {
+  const expenses = getExpenseTransactionsForRows(rows);
+  const comparison = getPeriodComparison();
+  const total = expenses.reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+  const byCategory = new Map();
+  for (const tx of expenses) byCategory.set(tx.categoryId, (byCategory.get(tx.categoryId) || 0) + Math.abs(Number(tx.amount || 0)));
+  const biggestCategory = Array.from(byCategory.entries())
+    .map(([categoryId, value]) => ({ ...categoryById(categoryId), total: value }))
+    .sort((a, b) => b.total - a.total)[0];
+  const dayBasis = Math.max(1, Math.abs(daysBetween(activeDateRange().to, activeDateRange().from)) + 1);
+  return { expenses: total, count: expenses.length, delta: total - comparison.previous.expenses, dailyAverage: total / dayBasis, dayBasis, biggestCategory };
+}
+
+function getMonthlySummary(month) {
+  return summarizeTransactions(getReportingTransactionsForMonth(month));
+}
+
+function getExpenseSummary(month) {
+  const expenses = getExpenseTransactionsForMonth(month);
+  const previousExpenses = getMonthlySummary(shiftMonth(month, -1)).expenses;
+  const total = expenses.reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
+  const byCategory = new Map();
+  for (const tx of expenses) {
+    byCategory.set(tx.categoryId, (byCategory.get(tx.categoryId) || 0) + Math.abs(tx.amount));
+  }
+  const biggestCategory = Array.from(byCategory.entries())
+    .map(([categoryId, value]) => ({ ...categoryById(categoryId), total: value }))
+    .sort((a, b) => b.total - a.total)[0];
+  const dayBasis = daysElapsedForMonth(month);
+  return {
+    expenses: total,
+    count: expenses.length,
+    delta: total - previousExpenses,
+    dailyAverage: dayBasis ? total / dayBasis : 0,
+    dayBasis,
+    biggestCategory,
+  };
+}
+
+function getExpenseTransactionsForMonth(month) {
+  return getReportingTransactionsForMonth(month)
+    .filter(isReportExpense)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+}
+
+function groupExpensesByMerchant(expenses) {
+  const grouped = new Map();
+  for (const tx of expenses) {
+    const name = merchantName(tx.description);
+    const entry = grouped.get(name) || { name, total: 0, count: 0 };
+    entry.total += Math.abs(tx.amount);
+    entry.count += 1;
+    grouped.set(name, entry);
+  }
+  return Array.from(grouped.values()).sort((a, b) => b.total - a.total);
+}
+
+function merchantName(description) {
+  const firstPart = String(description || "").split(" · ").find(Boolean) || "Ukendt";
+  const cleaned = firstPart
+    .replace(/\bC\d{6,}\b/gi, "")
+    .replace(/\b\d{6,}\b/g, "")
+    .replace(/\b\d{2}[-.]\d{2}[-.]\d{2,4}\b/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return cleaned || "Ukendt";
+}
+
+function getQuickCategoryActions() {
+  return [
+    ["cat-groceries", "Husholdning"],
+    ["cat-housing", "Bolig"],
+    ["cat-summerhouse", "Sommerhus"],
+    ["cat-family", "Familie"],
+    ["cat-lifestyle", "Fritid"],
+    ["cat-shopping", "Diverse"],
+    ["cat-reimburse", "Udlæg"],
+    ["cat-savings", "Opsparing"],
+    ["cat-transfer", "Intern"],
+  ]
+    .map(([categoryId, label]) => ({ categoryId, label }))
+    .filter((item) => categoryById(item.categoryId));
+}
+
+function isNeedsCategory(tx) {
+  const category = categoryById(tx.categoryId);
+  return !category || category.id === fallbackCategoryId() || ["andet", "ukendt"].includes(normalize(category.name));
+}
+
+function isUncertainCategory(tx) {
+  const category = categoryById(tx.categoryId);
+  return !category || tx.categoryId === fallbackCategoryId() || tx.needsReview || Number(tx.categoryConfidence || 0) < 78;
+}
+
+function getNeedsCategoryGroups(month) {
+  return getNeedsCategoryGroupsForRows(getTransactionsForMonth(month));
+}
+
+function getUncertainCategoryGroupsForRows(rows) {
+  const fallback = fallbackCategoryId();
+  const grouped = new Map();
+  for (const tx of rows) {
+    const uncertain = isUncertainCategory(tx);
+    if (!uncertain || Number(tx.amount || 0) >= 0) continue;
+    const name = merchantName(tx.description);
+    const suggestion = suggestCategoryForBankTransaction(tx);
+    const entry = grouped.get(name) || { name, count: 0, expenseTotal: 0, examples: [], currentCategoryId: tx.categoryId, reason: tx.categoryReason || "", suggestion };
+    entry.count += 1;
+    entry.expenseTotal += Math.abs(Number(tx.amount || 0));
+    if (entry.examples.length < 3) entry.examples.push(tx.description);
+    if (!entry.suggestion?.categoryId && suggestion.categoryId) entry.suggestion = suggestion;
+    grouped.set(name, entry);
+  }
+  return Array.from(grouped.values()).sort((a, b) => b.expenseTotal - a.expenseTotal || b.count - a.count);
+}
+
+function getNeedsCategoryGroupsForRows(rows) {
+  const grouped = new Map();
+  for (const tx of rows.filter(isNeedsCategory)) {
+    const name = merchantName(tx.description);
+    const entry = grouped.get(name) || { name, count: 0, expenseTotal: 0, net: 0, examples: [] };
+    entry.count += 1;
+    entry.net += Number(tx.amount || 0);
+    if (tx.amount < 0) entry.expenseTotal += Math.abs(tx.amount);
+    if (entry.examples.length < 3) entry.examples.push(tx.description);
+    grouped.set(name, entry);
+  }
+  return Array.from(grouped.values())
+    .sort((a, b) => b.expenseTotal - a.expenseTotal || b.count - a.count || a.name.localeCompare(b.name, "da"))
+    .slice(0, 40);
+}
+
+function categoryForRelationType(type) {
+  if (type === "opsparing" || type === "investering") return "cat-savings";
+  if (type === "udlæg") return "cat-reimburse";
+  if (type === "intern") return "cat-transfer";
+  return "";
+}
+
+function relationTypeForCategory(categoryId) {
+  if (categoryId === "cat-savings") return "opsparing";
+  if (categoryId === "cat-reimburse") return "udlæg";
+  if (categoryId === "cat-transfer") return "intern";
+  return "";
+}
+
+function applyCategoryToTransaction(txId, categoryId, options = {}) {
+  const tx = state.transactions.find((item) => item.id === txId);
+  const category = categoryById(categoryId);
+  if (!tx || !category) return false;
+  const impliedRelation = relationTypeForCategory(categoryId);
+  let relationType = Object.prototype.hasOwnProperty.call(options, "relationType") ? options.relationType : impliedRelation;
+  if (!relationType && category.kind === "transfer") relationType = tx.relationType || impliedRelation || "intern";
+  if (!relationType && category.kind !== "transfer") {
+    const previousRelationImpliedCategory = categoryForRelationType(tx.relationType || "");
+    relationType = previousRelationImpliedCategory ? "" : tx.relationType || "";
+  }
+  tx.categoryId = categoryId;
+  tx.categorySource = options.source || "manual";
+  tx.categoryConfidence = options.confidence ?? 100;
+  tx.categoryReason = options.reason || "Valideret";
+  tx.needsReview = false;
+  tx.relationType = relationType || "";
+  if (tx.relationType) {
+    if (options.relationKey || !tx.relationKey) tx.relationKey = options.relationKey || category.name;
+  } else if (!options.keepRelationKey) {
+    tx.relationKey = "";
+  }
+  if (options.note && !tx.note) tx.note = options.note;
+  tx.updatedAt = new Date().toISOString();
+  return true;
+}
+
+function improveCategorizationForRows(rows, { onlyUncertain = true } = {}) {
+  const fallback = fallbackCategoryId();
+  let changed = 0;
+  let reviewed = 0;
+  for (const tx of rows) {
+    reviewed += 1;
+    const current = categoryById(tx.categoryId);
+    const uncertain = !current || current.id === fallback || tx.needsReview || Number(tx.categoryConfidence || 0) < 78;
+    if (onlyUncertain && !uncertain) continue;
+    if (tx.categorySource === "manual" && !uncertain) continue;
+    const suggestion = suggestCategoryForBankTransaction(tx);
+    if (!suggestion.categoryId) {
+      tx.needsReview = uncertain;
+      continue;
+    }
+    if (tx.categoryId !== suggestion.categoryId || tx.needsReview || !tx.categorySource) {
+      tx.categoryId = suggestion.categoryId;
+      tx.categoryConfidence = suggestion.confidence || 0;
+      tx.categorySource = suggestion.source || "knowhow";
+      tx.categoryReason = suggestion.reason || "Auto-kategoriseret";
+      tx.needsReview = suggestion.confidence < 78;
+      if (suggestion.relationType && !tx.relationType) tx.relationType = suggestion.relationType;
+      tx.updatedAt = new Date().toISOString();
+      changed += 1;
+    }
+  }
+  return { changed, reviewed };
+}
+
+function applyCategoryToMerchantGroup(merchant, categoryId) {
+  const category = categoryById(categoryId);
+  if (!category) return { changed: 0, ruleCreated: false };
+  let changed = 0;
+  for (const tx of getPeriodTransactions()) {
+    if (!isUncertainCategory(tx)) continue;
+    if (merchantName(tx.description) !== merchant) continue;
+    if (applyCategoryToTransaction(tx.id, categoryId, { reason: `Valideret for ${merchant}` })) changed += 1;
+  }
+  const ruleCreated = maybeCreateRuleFromMerchant(merchant, categoryId);
+  return { changed, ruleCreated };
+}
+
+function validateCurrentCategoryForMerchantGroup(merchant) {
+  let changed = 0;
+  let categoryName = "";
+  for (const tx of getPeriodTransactions()) {
+    if (!isUncertainCategory(tx)) continue;
+    if (merchantName(tx.description) !== merchant) continue;
+    const category = categoryById(tx.categoryId);
+    if (!category || category.id === fallbackCategoryId()) continue;
+    tx.categorySource = "manual";
+    tx.categoryConfidence = 100;
+    tx.categoryReason = `Godkendt nuværende kategori for ${merchant}`;
+    tx.needsReview = false;
+    tx.updatedAt = new Date().toISOString();
+    categoryName ||= category.name;
+    changed += 1;
+  }
+  return { changed, categoryName };
+}
+
+function maybeCreateRuleFromMerchant(merchant, categoryId) {
+  const category = categoryById(categoryId);
+  const keyword = ruleKeywordFromMerchant(merchant);
+  if (!category || !keyword || keyword.length < 3) return false;
+  if (category.kind === "transfer" && categoryId !== "cat-savings") return false;
+  if (state.rules.some((rule) => normalize(rule.keyword) === normalize(keyword))) return false;
+  state.rules.push({ id: uid("rule"), keyword, categoryId });
+  return true;
+}
+
+function ruleKeywordFromMerchant(merchant) {
+  return String(merchant || "")
+    .replace(/[·|].*$/, "")
+    .replace(/\b\d+\b/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 48);
+}
+
+function getMoneyMovementCandidates(month) {
+  return getMoneyMovementCandidatesForRows(getTransactionsForMonth(month));
+}
+
+function getMoneyMovementCandidatesForRows(rows) {
+  return rows
+    .filter((tx) => !isProtectedIncomeTransaction(tx))
+    .map((tx) => ({ tx, suggestion: getMoneyMovementSuggestion(tx) }))
+    .filter(({ tx, suggestion }) => suggestion.categoryId && tx.categoryId !== suggestion.categoryId)
+    .sort((a, b) => b.suggestion.score - a.suggestion.score || Math.abs(b.tx.amount) - Math.abs(a.tx.amount))
+    .map(({ tx }) => tx)
+    .slice(0, 80);
+}
+
+function isProtectedIncomeTransaction(tx) {
+  const text = normalize(`${tx?.description || ""} ${tx?.note || ""} ${tx?.relationKey || ""}`);
+  return categoryById(tx?.categoryId)?.kind === "income" || /(lonoverforsel|loenoverfoersel|lønoverførsel|\blon\b|\bloen\b|\bløn\b|salary|gage|honorar)/.test(text);
+}
+
+function looksLikeInternalTransfer(tx) {
+  if (!tx || isProtectedIncomeTransaction(tx)) return false;
+  if (["cat-transfer", "cat-savings"].includes(tx.categoryId || "")) return true;
+  const text = relationText(tx);
+  return /(overforsel|overførsel|kontooverforsel|kontooverførsel|egen konto|mellem konti|fra konto|til konto|straksoverforsel|straksoverførsel|til faelles|til fælles|til dankonto|til sparkron|sommerhuskonto|budgetkonto|opsparing|sparekonto|indlan|indlån|fra kredit|bank norwegian|saxo|nordnet|depot|investering)/.test(text);
+}
+
+function getMoneyMovementSuggestion(tx) {
+  if (isProtectedIncomeTransaction(tx)) return { categoryId: "", relationType: "", reason: "", score: 0, confidence: "none" };
+  const text = normalize(`${tx.description} ${tx.note || ""} ${tx.relationKey || ""}`);
+  const result = (categoryId, relationType, reason, score = 60, confidence = "medium") => ({ categoryId, relationType, reason, score, confidence });
+
+  if (/\b(saxo|nordnet|depot|invester|investering|aktie|aktier|etf|fond|pension)\b/.test(text)) {
+    return result("cat-savings", "investering", "Teksten ligner overførsel til/fra investeringskonto.", 100, "high");
+  }
+  if (/\b(opsparing|sparekonto|nedsparing)\b/.test(text)) {
+    return result("cat-savings", "opsparing", "Teksten ligner opsparing eller flytning til sparekonto.", 96, "high");
+  }
+  if (/\b(overforsel|overførsel|kontooverforsel|kontooverførsel|egen konto|mellem konti|fra konto|til konto|straksoverforsel|straksoverførsel)\b/.test(text)) {
+    return result("cat-transfer", "intern", "Teksten ligner en intern kontooverførsel.", 92, "high");
+  }
+  if (looksLikeInternalTransfer(tx) && hasMatchingOppositeTransaction(tx)) {
+    return result("cat-transfer", "intern", "Der findes en modpost med samme beløb i samme periode, og teksten ligner en intern flytning.", 88, "high");
+  }
+  if (/(mobilepay|refusion|refunder|tilbagebetalt|tilbagebetaling|lagt ud|udlæg|udlaeg|skylder)/.test(text)) {
+    const confidence = /(refusion|refunder|tilbagebetalt|lagt ud|udlæg|udlaeg|skylder)/.test(text) ? "high" : "low";
+    return result("cat-reimburse", "udlæg", "Teksten ligner udlæg eller penge tilbage fra andre.", confidence === "high" ? 82 : 45, confidence);
+  }
+  return { categoryId: "", relationType: "", reason: "", score: 0, confidence: "none" };
+}
+
+function hasMatchingOppositeTransaction(tx) {
+  const amount = Math.abs(Number(tx.amount || 0));
+  if (!amount) return false;
+  return state.transactions.some((other) => {
+    if (other.id === tx.id) return false;
+    if (toMonthKey(other.date) !== toMonthKey(tx.date)) return false;
+    if (Math.abs(Math.abs(Number(other.amount || 0)) - amount) > 0.01) return false;
+    if (Math.sign(other.amount) === Math.sign(tx.amount)) return false;
+    return Math.abs(daysBetween(other.date, tx.date)) <= 3;
+  });
+}
+
+function daysBetween(a, b) {
+  const first = new Date(`${a}T00:00:00`);
+  const second = new Date(`${b}T00:00:00`);
+  return Math.round((first - second) / 86400000);
+}
+
+function getCleanupStatus(month) {
+  return getCleanupStatusForRows(getTransactionsForMonth(month));
+}
+
+function getCleanupStatusForRows(rows) {
+  const unknownCount = rows.filter(isNeedsCategory).length;
+  const transferMatches = findTransferMatchesForRows(rows);
+  const movementCount = getMoneyMovementCandidatesForRows(rows).length;
+  const matchedInternalCount = rows.filter((tx) => tx.linkedTransactionId && tx.relationType === "intern").length / 2;
+  return { unknownCount, transferMatchCount: transferMatches.length, movementCount, matchedInternalCount };
+}
+
+function findTransferMatches(month) {
+  return findTransferMatchesForRows(getTransactionsForMonth(month));
+}
+
+function findTransferMatchesForRows(periodRows) {
+  const rows = periodRows.filter((tx) => Number(tx.amount || 0) !== 0 && !tx.linkedTransactionId && !isProtectedIncomeTransaction(tx));
+  const negatives = rows.filter((tx) => tx.amount < 0);
+  const positives = rows.filter((tx) => tx.amount > 0);
+  const candidates = [];
+
+  for (const outTx of negatives) {
+    for (const inTx of positives) {
+      if (outTx.accountId === inTx.accountId) continue;
+      const amount = Math.abs(Number(outTx.amount || 0));
+      if (Math.abs(Math.abs(Number(inTx.amount || 0)) - amount) > 0.01) continue;
+      const dayDiff = Math.abs(daysBetween(outTx.date, inTx.date));
+      if (dayDiff > 5) continue;
+      if (!isSafeTransferCandidatePair(outTx, inTx)) continue;
+      const scored = scoreTransferMatch(outTx, inTx, dayDiff);
+      if (scored.score < 45) continue;
+      candidates.push({
+        id: `${outTx.id}|${inTx.id}`,
+        outTx,
+        inTx,
+        amount,
+        dayDiff,
+        ...scored,
+        confidence: scored.score >= 82 ? "high" : "medium",
+      });
+    }
+  }
+
+  const used = new Set();
+  return candidates
+    .sort((a, b) => b.score - a.score || b.amount - a.amount || a.dayDiff - b.dayDiff)
+    .filter((match) => {
+      if (used.has(match.outTx.id) || used.has(match.inTx.id)) return false;
+      used.add(match.outTx.id);
+      used.add(match.inTx.id);
+      return true;
+    });
+}
+
+function isSafeTransferCandidatePair(outTx, inTx) {
+  if (isProtectedIncomeTransaction(outTx) || isProtectedIncomeTransaction(inTx)) return false;
+  return looksLikeInternalTransfer(outTx) || looksLikeInternalTransfer(inTx);
+}
+
+function scoreTransferMatch(outTx, inTx, dayDiff) {
+  let score = 42;
+  const reasons = [`samme beløb (${formatCurrency(Math.abs(outTx.amount))})`];
+  const outText = relationText(outTx);
+  const inText = relationText(inTx);
+  const combined = `${outText} ${inText}`;
+
+  if (dayDiff === 0) {
+    score += 22;
+    reasons.push("samme dato");
+  } else if (dayDiff <= 1) {
+    score += 16;
+    reasons.push("1 dag imellem");
+  } else if (dayDiff <= 3) {
+    score += 10;
+    reasons.push(`${dayDiff} dage imellem`);
+  }
+
+  if (new Date(`${outTx.date}T00:00:00`).getDate() <= 5 && new Date(`${inTx.date}T00:00:00`).getDate() <= 5) {
+    score += 12;
+    reasons.push("starten af måneden");
+  }
+
+  if (/(overforsel|overførsel|konto|intern|egen konto|fra konto|til konto|budget|faelles|fælles|opsparing)/.test(combined)) {
+    score += 18;
+    reasons.push("tekst ligner kontooverførsel");
+  }
+
+  if (outTx.relationType === "intern" || inTx.relationType === "intern") {
+    score += 20;
+    reasons.push("note/relation er intern");
+  }
+
+  if (outTx.relationKey && inTx.relationKey && normalize(outTx.relationKey) === normalize(inTx.relationKey)) {
+    score += 26;
+    reasons.push("samme relationsnavn");
+  }
+
+  if (mentionsAccount(outTx, inTx.accountId) || mentionsAccount(inTx, outTx.accountId)) {
+    score += 18;
+    reasons.push("kontonavn nævnt i tekst/note");
+  }
+
+  if (categoryById(outTx.categoryId)?.kind === "transfer" || categoryById(inTx.categoryId)?.kind === "transfer") {
+    score += 10;
+    reasons.push("én post er allerede markeret som flytning");
+  }
+
+  return { score, reason: reasons.slice(0, 4).join(" · ") };
+}
+
+function relationText(tx) {
+  return normalize(`${tx.description || ""} ${tx.note || ""} ${tx.relationKey || ""}`);
+}
+
+function mentionsAccount(tx, accountId) {
+  const account = accountById(accountId);
+  if (!account) return false;
+  const text = relationText(tx);
+  const name = normalize(account.name);
+  if (name && text.includes(name)) return true;
+  return name.split(/\s+/).filter((part) => part.length >= 5).some((part) => text.includes(part));
+}
+
+function applyInternalTransferMatch(outTx, inTx) {
+  if (!outTx || !inTx || outTx.id === inTx.id) return false;
+  if (isProtectedIncomeTransaction(outTx) || isProtectedIncomeTransaction(inTx)) return false;
+  if (!isSafeTransferCandidatePair(outTx, inTx)) return false;
+  if (Math.abs(Math.abs(Number(outTx.amount || 0)) - Math.abs(Number(inTx.amount || 0))) > 0.01) return false;
+  const groupId = outTx.matchGroupId || inTx.matchGroupId || uid("match");
+  const relationKey = `Afstemt: ${accountById(outTx.accountId)?.name || "fra konto"} → ${accountById(inTx.accountId)?.name || "til konto"}`;
+  const note = `Afstemt intern kontooverførsel på ${formatCurrency(Math.abs(outTx.amount))}`;
+  const transferId = transferCategoryId() || "cat-transfer";
+  for (const tx of [outTx, inTx]) {
+    tx.categoryId = transferId;
+    tx.relationType = "intern";
+    tx.relationKey = tx.relationKey || relationKey;
+    tx.matchGroupId = groupId;
+    tx.linkedTransactionId = tx.id === outTx.id ? inTx.id : outTx.id;
+    tx.note = appendNote(tx.note, note);
+    tx.updatedAt = new Date().toISOString();
+  }
+  return true;
+}
+
+function appendNote(current, addition) {
+  const existing = String(current || "").trim();
+  if (!existing) return addition;
+  if (normalize(existing).includes(normalize(addition))) return existing;
+  return `${existing}\n${addition}`;
+}
+
+function getTransactionsForMonth(month, basis = ui.dateBasis) {
+  return [...state.transactions]
+    .filter((tx) => transactionMonthForView(tx, basis) === month)
+    .sort(sortTransactionsForView);
+}
+
+function getFilteredTransactions() {
+  const query = normalize(ui.query);
+  return getPeriodTransactions().filter((tx) => {
+    const category = categoryById(tx.categoryId);
+    const account = accountById(tx.accountId);
+    const haystack = normalize(`${tx.description} ${tx.note || ""} ${tx.relationType || ""} ${tx.relationKey || ""} ${category?.name || ""} ${account?.name || ""} ${tx.amount}`);
+    if (query && !haystack.includes(query)) return false;
+    if (ui.categoryFilter !== "all" && tx.categoryId !== ui.categoryFilter) return false;
+    if (ui.accountFilter !== "all" && tx.accountId !== ui.accountFilter) return false;
+    return true;
+  });
+}
+
+function getReportTransactions({ onlyExpenses = false, onlyTransfers = false } = {}) {
+  return getPeriodReportingTransactions().filter((tx) => {
+    const category = categoryById(tx.categoryId);
+    if (ui.reportAccountFilter !== "all" && tx.accountId !== ui.reportAccountFilter) return false;
+    if (onlyExpenses && !isReportExpense(tx)) return false;
+    if (onlyTransfers && !isReportTransfer(tx)) return false;
+    return true;
+  });
+}
+
+function getCategoryReportRows(month, accountFilter = ui.reportAccountFilter) {
+  return getCategoryReportRowsForRows(getReportingTransactionsForMonth(month), accountFilter);
+}
+
+function getMerchantReportRows(month, categoryId = "", accountFilter = ui.reportAccountFilter) {
+  return getMerchantReportRowsForRows(getReportingTransactionsForMonth(month), categoryId, accountFilter);
+}
+
+function getMatchedTransferPairs(month) {
+  return getMatchedTransferPairsForRows(getTransactionsForMonth(month));
+}
+
+function getMatchedTransferPairsForRows(rows) {
+  const pairs = [];
+  const seen = new Set();
+  for (const tx of rows) {
+    if (!tx.linkedTransactionId || seen.has(tx.id)) continue;
+    if (ui.reportAccountFilter !== "all" && tx.accountId !== ui.reportAccountFilter) continue;
+    const other = state.transactions.find((item) => item.id === tx.linkedTransactionId);
+    if (!other) continue;
+    seen.add(tx.id);
+    seen.add(other.id);
+    const outTx = tx.amount < 0 ? tx : other;
+    const inTx = tx.amount > 0 ? tx : other;
+    pairs.push({
+      groupId: tx.matchGroupId || `${outTx.id}|${inTx.id}`,
+      from: accountById(outTx.accountId)?.name || "Ukendt konto",
+      to: accountById(inTx.accountId)?.name || "Ukendt konto",
+      amount: Math.abs(outTx.amount),
+      date: outTx.date,
+      count: 2,
+      transactions: [outTx, inTx],
+    });
+  }
+  return pairs.sort((a, b) => b.amount - a.amount);
+}
+
+function sortTransactionsDesc(a, b) {
+  if (a.date !== b.date) return b.date.localeCompare(a.date);
+  return Math.abs(b.amount) - Math.abs(a.amount);
+}
+
+function getTotalBalance() {
+  return state.accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
+}
+
+function getAccountMonthlySummary(accountId, month) {
+  return summarizeAccountTransactions(getTransactionsForMonth(month).filter((tx) => tx.accountId === accountId));
+}
+
+function getAccountPeriodSummary(accountId) {
+  return summarizeAccountTransactions(getPeriodTransactions().filter((tx) => tx.accountId === accountId));
+}
+
+function summarizeAccountTransactions(rows) {
+  let income = 0;
+  let expenses = 0;
+  let transfers = 0;
+  for (const tx of rows) {
+    const category = categoryById(tx.categoryId);
+    if (isReportTransfer(tx)) {
+      transfers += Number(tx.amount || 0);
+    } else if (tx.amount >= 0) {
+      income += Number(tx.amount || 0);
+    } else {
+      expenses += Math.abs(Number(tx.amount || 0));
+    }
+  }
+  return { income, expenses, transfers };
+}
+
+function getAvailableMonths() {
+  const set = new Set([currentMonthKey(), ui.month, state.settings.selectedMonth].filter(Boolean));
+  for (const tx of state.transactions) {
+    set.add(toMonthKey(tx.date));
+    set.add(transactionMonthForView(tx, "economic"));
+  }
+  return Array.from(set).sort().reverse();
+}
+
+function latestTransactionMonth() {
+  return state.transactions
+    .map((tx) => toMonthKey(tx.date))
+    .filter(Boolean)
+    .sort()
+    .at(-1) || "";
+}
+
+function lastMonths(month, count) {
+  return Array.from({ length: count }, (_, index) => shiftMonth(month, index - count + 1));
+}
+
+function transactionCountForAccount(accountId) {
+  return state.transactions.filter((tx) => tx.accountId === accountId).length;
+}
+
+function transactionCountForCategory(categoryId) {
+  return state.transactions.filter((tx) => tx.categoryId === categoryId).length;
+}
+
+function accountById(id) {
+  return state.accounts.find((account) => account.id === id);
+}
+
+function categoryById(id) {
+  return state.categories.find((category) => category.id === id);
+}
+
+function fallbackCategoryId() {
+  return state.categories.find((category) => category.id === "cat-other")?.id || state.categories.find((category) => category.name.toLowerCase() === "ukendt")?.id || state.categories[0]?.id || "";
+}
+
+function transferCategoryId() {
+  return state.categories.find((category) => category.id === "cat-transfer")?.id || state.categories.find((category) => category.kind === "transfer")?.id || "";
+}
+
+function matchCategoryByRules(text) {
+  const haystack = normalize(text);
+  const rule = state.rules.find((item) => haystack.includes(normalize(item.keyword)));
+  return rule?.categoryId || "";
+}
+
+function matchRuleObjectByText(text) {
+  const haystack = normalize(text);
+  return state.rules.find((item) => haystack.includes(normalize(item.keyword)));
+}
+
+function matchCategoryByMcc(mcc) {
+  const code = String(mcc || "").replace(/\D/g, "");
+  if (!code) return "";
+  const numeric = Number(code);
+  const match = MCC_CATEGORY_RULES.find((rule) =>
+    rule.codes?.includes(code) || rule.ranges?.some(([from, to]) => numeric >= from && numeric <= to)
+  );
+  return match?.categoryId || "";
+}
+
+function suggestCategoryForBankTransaction(remote) {
+  const openBanking = remote?.openBanking || {};
+  const accountName = remote?.accountName || remote?.sourceAccountName || accountById(remote?.accountId)?.name || "";
+  const merchantText = [remote?.description, remote?.counterpartyName, openBanking.remittanceText, remote?.note, remote?.relationKey].filter(Boolean).join(" ");
+  const normalized = normalize(merchantText);
+  const amount = Number(remote?.amount || 0);
+  const mcc = remote?.merchantCategoryCode || openBanking.merchantCategoryCode;
+  const mccCategory = matchCategoryByMcc(mcc);
+  if (mccCategory) return { categoryId: mccCategory, confidence: 98, source: "mcc", reason: `MCC ${mcc}` };
+
+  if (amount < 0 && /(til .*løn|til .*lon|sparkron løn|sparkron lon)/.test(normalized)) {
+    return { categoryId: "cat-transfer", relationType: "intern", confidence: 88, source: "knowhow", reason: "Negativ post til lønkonto ligner intern overførsel." };
+  }
+
+  const userRule = matchRuleObjectByText(merchantText);
+  if (userRule && !(userRule.categoryId === "cat-salary" && amount < 0)) return { categoryId: userRule.categoryId, confidence: 91, source: "regel", reason: `Regel: ${userRule.keyword}` };
+
+  const isTransferText = /(til faelles|til fælles|til sommerhuskonto|fra sommerhuskonto|overfort til|overført til|egen konto|mellem konti|kontooverforsel|kontooverførsel|automatisk saldoflytning|(^|\s)forbrug(\s|$)|forbrug på mastercard)/.test(normalized);
+  if (isTransferText) return { categoryId: "cat-transfer", relationType: "intern", confidence: 92, source: "knowhow", reason: "Ligner intern kontooverførsel." };
+
+  const summerhouseAccount = /sommerhus/.test(normalize(accountName));
+  if (summerhouseAccount && !/(mobilepay|udlæg|udlaeg|refusion|løn|loen)/.test(normalized)) {
+    return { categoryId: "cat-summerhouse", confidence: 86, source: "konto", reason: "Posteringen ligger på sommerhuskontoen." };
+  }
+
+  const match = INTELLIGENT_CATEGORY_RULES.find((rule) => rule.pattern.test(normalized) && !(rule.categoryId === "cat-salary" && amount < 0));
+  if (match) return { categoryId: match.categoryId, relationType: match.relationType || "", confidence: match.confidence, source: "knowhow", reason: match.reason };
+
+  if (summerhouseAccount && !/(mobilepay|udlæg|udlaeg|refusion|løn|loen|meny|netto|superbrugsen|odden fisk|kiosken|restaurant|cafe|kaffe|wolt|molslinjen|parkering|easypark)/.test(normalized)) {
+    return { categoryId: "cat-summerhouse", confidence: 62, source: "konto", reason: "Posteringen ligger på sommerhuskontoen, men bør valideres." };
+  }
+
+  return { categoryId: "", confidence: 0, source: "", reason: "Ingen sikker kategori." };
+}
+
+function matchCategoryForBankTransaction(remote) {
+  return suggestCategoryForBankTransaction(remote).categoryId;
+}
+
+function relationTypeLabel(type) {
+  return RELATION_TYPES.find((item) => item.id === type)?.label || "Anden sammenhæng";
+}
+
+function inferRelationFromNote(note, description = "") {
+  const text = normalize(`${note} ${description}`);
+  if (!normalize(note)) return { type: "", key: "" };
+
+  if (/(saxo|nordnet|depot|invester|investering|aktie|aktier|etf|fond|pension)/.test(text)) {
+    return { type: "investering", key: extractRelationKey(note) || "Investering" };
+  }
+  if (/(opsparing|sparekonto|nedsparing)/.test(text)) {
+    return { type: "opsparing", key: extractRelationKey(note) || "Opsparing" };
+  }
+  if (/(lagt ud|udlaeg|udlæg|refusion|refunder|tilbagebetalt|tilbagebetaling|skylder|mobilepay)/.test(text)) {
+    return { type: "udlæg", key: extractRelationKey(note) || merchantName(description) };
+  }
+  if (/(intern|overforsel|overførsel|egen konto|mellem konto|faelleskonto|fælleskonto|budgetkonto)/.test(text)) {
+    return { type: "intern", key: extractRelationKey(note) || "Kontooverførsel" };
+  }
+  if (/(faelles|fælles|deles|split|halv|halvdelen)/.test(text)) {
+    return { type: "fælles", key: extractRelationKey(note) || merchantName(description) };
+  }
+  return { type: "andet", key: extractRelationKey(note) || String(note).trim().slice(0, 42) };
+}
+
+function extractRelationKey(note) {
+  const text = String(note || "").trim();
+  const match = text.match(/(?:for|fra|til|med|vedr\.?|ang\.?|relation:)\s+([^,.\n;]+)/i);
+  const key = (match?.[1] || text).replace(/\b(refusion|refunderes|tilbagebetalt|mobilepay|lagt ud|udlæg|intern overførsel|opsparing|investering)\b/gi, "").trim();
+  return key.slice(0, 58);
+}
+
+function applyRelationsFromNotes() {
+  let changed = 0;
+  for (const tx of getPeriodTransactions()) {
+    if (!tx.note || (tx.relationType && tx.relationKey)) continue;
+    const inferred = inferRelationFromNote(tx.note, tx.description);
+    if (!inferred.type && !inferred.key) continue;
+    const relationCategoryId = categoryForRelationType(inferred.type);
+    tx.relationType = tx.relationType || inferred.type;
+    tx.relationKey = tx.relationKey || inferred.key;
+    tx.categoryId = relationCategoryId || tx.categoryId;
+    tx.updatedAt = new Date().toISOString();
+    changed += 1;
+  }
+  return changed;
+}
+
+function getBankSyncState() {
+  state.bankSync ||= { accounts: [], accountMappings: {}, lastSyncAt: "", config: null, autoSyncOnOpen: false, enableBanking: {} };
+  state.bankSync.accounts ||= [];
+  state.bankSync.accountMappings ||= {};
+  state.bankSync.enableBanking ||= { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 };
+  state.bankSync.enableBanking.accounts ||= [];
+  return state.bankSync;
+}
+
+async function apiFetch(path, options = {}) {
+  const response = await fetch(path, {
+    method: options.method || "GET",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) throw new Error(data?.message || data?.detail || data?.error || `API-fejl ${response.status}`);
+  return data;
+}
+
+async function hydrateRuntimeStatus() {
+  try {
+    runtimeStatus = { ...runtimeStatus, ...(await apiFetch("/api/health")), ok: true };
+    render();
+  } catch (error) {
+    runtimeStatus = { ...runtimeStatus, ok: false };
+    console.warn("Kunne ikke hente runtime-status", error);
+  }
+}
+
+function dataLocationLabel() {
+  if (runtimeStatus.dataBackend === "supabase") return "Data synkroniseres via server og Supabase.";
+  if (serverStateHydrated) return "Data gemmes lokalt og spejles til Node-serveren.";
+  return "Data ligger lokalt i denne browser.";
+}
+
+async function hydrateEnableBankingFromServer(silent = true) {
+  if (enableBankingHydrated && silent) return;
+  enableBankingHydrated = true;
+  try {
+    const before = stateFingerprint(state);
+    const config = await apiFetch("/api/enablebanking/config");
+    const bankSync = getBankSyncState();
+    const eb = bankSync.enableBanking;
+    eb.config = config;
+    eb.accounts = config.accounts || eb.accounts || [];
+    if (config.hasSession) {
+      const data = await apiFetch("/api/enablebanking/accounts");
+      eb.accounts = data.accounts || eb.accounts || [];
+      for (const account of eb.accounts) {
+        bankSync.accountMappings[account.id] ||= findAccountByName(account.name)?.id || `new:${account.name}`;
+      }
+    }
+    if (stateFingerprint(state) !== before) saveStateQuietly();
+    maybeAutoSyncLatest();
+    if (ui.view === "bank-sync") render();
+    if (!silent) notify(eb.accounts?.length ? `${eb.accounts.length} Enable Banking-konti er synlige nu.` : "Enable Banking-status er opdateret.");
+  } catch (error) {
+    console.warn("Kunne ikke hente Enable Banking-status", error);
+    if (!silent) notify(`Kunne ikke hente Enable Banking-status: ${error.message}`, "danger");
+  }
+}
+
+async function refreshEnableBankingStatus() {
+  try {
+    const config = await apiFetch("/api/enablebanking/config");
+    const eb = getBankSyncState().enableBanking;
+    eb.config = config;
+    eb.accounts = config.accounts || eb.accounts || [];
+    saveState();
+    notify(config.configured ? "Enable Banking backend er klar." : "Enable Banking mangler nøgle/certifikat eller Application ID.", config.configured ? "info" : "danger");
+  } catch (error) {
+    notify(`Enable Banking kræver Node-serveren. Start med ./scripts/start.sh. (${error.message})`, "danger");
+  }
+}
+
+async function runEnableBankingDiagnostics() {
+  try {
+    const diagnostics = await apiFetch("/api/enablebanking/diagnostics");
+    const eb = getBankSyncState().enableBanking;
+    eb.diagnostics = diagnostics;
+    eb.config = { ...(eb.config || {}), ...diagnostics };
+    eb.accounts = diagnostics.accounts || eb.accounts || [];
+    saveState();
+    notify(diagnostics.jwt?.ok && diagnostics.api?.ok ? "Enable Banking-diagnose er OK." : "Diagnose kørt — der er noget du skal tjekke.", diagnostics.jwt?.ok && diagnostics.api?.ok ? "info" : "danger");
+  } catch (error) {
+    notify(`Kunne ikke køre Enable Banking-diagnose: ${error.message}`, "danger");
+  }
+}
+
+async function generateEnableBankingKeys() {
+  try {
+    const data = await apiFetch("/api/enablebanking/generate-keys", { method: "POST" });
+    const eb = getBankSyncState().enableBanking;
+    eb.generatedCertificate = data.certificatePem;
+    eb.privateKeyPath = data.privateKeyPath;
+    eb.certificatePath = data.certificatePath;
+    eb.config = { ...(eb.config || {}), privateKeyExists: true, certificateExists: true, keyPath: data.privateKeyPath, certificatePath: data.certificatePath };
+    saveState();
+    notify("Enable Banking-certifikat er genereret. Upload certifikatet i Enable Banking og indsæt Application ID.");
+  } catch (error) {
+    notify(`Kunne ikke generere Enable Banking-certifikat: ${error.message}`, "danger");
+  }
+}
+
+async function startEnableBankingConsent() {
+  try {
+    const eb = getBankSyncState().enableBanking;
+    const redirectUrl = eb.config?.redirectUrl || `${window.location.origin}${window.location.pathname}`;
+    const auth = await apiFetch("/api/enablebanking/auth", {
+      method: "POST",
+      body: {
+        redirectUrl,
+        aspspName: eb.config?.aspspName || "Sparekassen Kronjylland",
+        country: eb.config?.country || "DK",
+        language: eb.config?.language || "da",
+        psuType: "personal",
+        validDays: 90,
+      },
+    });
+    eb.lastAuthorizationId = auth.authorization_id || "";
+    eb.lastConsentLink = auth.url;
+    eb.lastState = auth.state;
+    saveState();
+    window.location.href = auth.url;
+  } catch (error) {
+    notify(`Kunne ikke starte Enable Banking-samtykke: ${error.message}`, "danger");
+  }
+}
+
+async function completeEnableBankingSession(code, error) {
+  if (error) {
+    notify(`Enable Banking-samtykke blev ikke fuldført: ${error}`, "danger");
+    return;
+  }
+  if (!code) {
+    notify("Enable Banking returnerede ingen kode. Prøv samtykke-flowet igen.", "danger");
+    return;
+  }
+  try {
+    notify("Enable Banking-samtykke modtaget. Jeg opretter session og henter konti nu.");
+    const data = await apiFetch("/api/enablebanking/session", { method: "POST", body: { code } });
+    const eb = getBankSyncState().enableBanking;
+    eb.sessionId = data.sessionId;
+    eb.accounts = data.accounts || [];
+    eb.authorizedAt = data.authorizedAt;
+    eb.config = { ...(eb.config || {}), hasSession: true, sessionId: data.sessionId, authorizedAt: data.authorizedAt };
+    for (const account of eb.accounts) {
+      getBankSyncState().accountMappings[account.id] ||= findAccountByName(account.name)?.id || `new:${account.name}`;
+    }
+    saveState();
+    await refreshEnableBankingAccounts();
+  } catch (err) {
+    notify(`Kunne ikke oprette Enable Banking-session: ${err.message}`, "danger");
+  }
+}
+
+async function refreshEnableBankingAccounts() {
+  try {
+    const data = await apiFetch("/api/enablebanking/accounts");
+    const bankSync = getBankSyncState();
+    const eb = bankSync.enableBanking;
+    eb.accounts = data.accounts || [];
+    for (const account of eb.accounts) {
+      bankSync.accountMappings[account.id] ||= findAccountByName(account.name)?.id || `new:${account.name}`;
+    }
+    saveState();
+    notify(`${eb.accounts.length} ${eb.accounts.length === 1 ? "Enable Banking-konto" : "Enable Banking-konti"} hentet.`);
+  } catch (error) {
+    notify(`Kunne ikke hente Enable Banking-konti: ${error.message}`, "danger");
+  }
+}
+
+async function maybeAutoSyncLatest() {
+  if (autoSyncStarted) return;
+  const eb = getBankSyncState().enableBanking;
+  if (!eb.config?.hasSession && !eb.config?.sessionId) return;
+  const last = eb.lastSyncAt ? new Date(eb.lastSyncAt).getTime() : 0;
+  const stale = !last || Date.now() - last > 30 * 60 * 1000;
+  if (!stale) return;
+  autoSyncStarted = true;
+  const keepView = ui.view;
+  const keepMonth = ui.month;
+  await syncEnableBankingTransactions(true, {
+    dateFrom: uiMonthStart(shiftMonth(currentMonthKey(), -1)),
+    dateTo: todayISO(),
+    view: keepView,
+    month: keepMonth,
+  });
+}
+
+async function syncLatestBankData() {
+  notify("Henter nyeste bankdata…");
+  await syncEnableBankingTransactions(false, {
+    dateFrom: "2025-11-01",
+    dateTo: todayISO(),
+    view: "overblik",
+    month: currentMonthKey(),
+  });
+}
+
+async function syncEnableBankingTransactions(silent = false, options = {}) {
+  try {
+    const dateFrom = options.dateFrom || ui.syncDateFrom || uiMonthStart(ui.month);
+    const dateTo = options.dateTo || ui.syncDateTo || todayISO();
+    const data = await apiFetch(`/api/enablebanking/sync?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
+    const result = importEnableBankingTransactions(data);
+    const dedupe = removeOverlapDuplicates();
+    const eb = getBankSyncState().enableBanking;
+    eb.accounts = data.accounts || eb.accounts;
+    eb.lastSyncAt = data.syncedAt || new Date().toISOString();
+    eb.lastImportCount = result.imported;
+    eb.lastDateFrom = dateFrom;
+    eb.lastDateTo = dateTo;
+    ui.month = options.month || toMonthKey(dateTo);
+    saveState();
+    ui.view = options.view || "oprydning";
+    if (!silent || result.imported || dedupe.removed) notify(`${result.imported} nye postering${result.imported === 1 ? "" : "er"} hentet. ${result.skipped} dublet${result.skipped === 1 ? "" : "ter"} sprunget over. ${dedupe.removed} overlap fjernet automatisk${data.errors?.length ? `, ${data.errors.length} konto-fejl` : ""}.`);
+    else if (!silent) render();
+  } catch (error) {
+    if (!silent) notify(`Enable Banking-sync fejlede: ${error.message}`, "danger");
+  }
+}
+
+function importEnableBankingTransactions(sync) {
+  const existing = new Set(state.transactions.map(transactionFingerprint));
+  let imported = 0;
+  let skipped = 0;
+  for (const remote of sync.transactions || []) {
+    const accountId = ensureLocalAccountForEnableBanking(remote, sync.accounts || []);
+    const openBanking = remote.openBanking || {};
+    const suggestion = suggestCategoryForBankTransaction({ ...remote, accountId });
+    const tx = {
+      id: `tx_${remote.id || uid("eb")}`,
+      accountId,
+      date: remote.date,
+      description: remote.description,
+      amount: Number(remote.amount || 0),
+      categoryId: suggestion.categoryId || fallbackCategoryId(),
+      categoryConfidence: suggestion.confidence || 0,
+      categorySource: suggestion.source || "",
+      categoryReason: suggestion.reason || "",
+      needsReview: !suggestion.categoryId || suggestion.confidence < 78,
+      note: remote.status && !["BOOK", "booked"].includes(String(remote.status)) ? String(remote.status) : "",
+      relationType: remote.relationType || suggestion.relationType || "",
+      relationKey: remote.relationKey || remote.counterpartyName || openBanking.counterpartyName || "",
+      linkedTransactionId: "",
+      matchGroupId: "",
+      source: "enablebanking",
+      externalId: remote.externalId,
+      externalAccountId: remote.externalAccountId,
+      merchantCategoryCode: remote.merchantCategoryCode || openBanking.merchantCategoryCode || "",
+      bankTransactionCode: remote.bankTransactionCode || openBanking.bankTransactionCode || "",
+      counterpartyName: remote.counterpartyName || openBanking.counterpartyName || "",
+      counterpartyAccount: remote.counterpartyAccount || openBanking.counterpartyAccount || "",
+      openBanking,
+      importedAt: sync.syncedAt || new Date().toISOString(),
+    };
+    const periodInfo = getEconomicPeriodInfo(tx, { ignoreLock: true });
+    tx.periodMonth = periodInfo.periodMonth;
+    tx.periodDate = periodInfo.periodDate;
+    tx.periodRule = periodInfo.rule;
+    tx.periodConfidence = periodInfo.confidence;
+    tx.periodReason = periodInfo.reason;
+    const fingerprint = transactionFingerprint(tx);
+    const duplicate = findLikelyDuplicateTransaction(tx);
+    if (existing.has(fingerprint) || duplicate) {
+      if (duplicate) {
+        backfillOpenBankingMetadata(duplicate, remote);
+        duplicate.externalId ||= remote.externalId;
+        duplicate.externalAccountId ||= remote.externalAccountId;
+        duplicate.source = duplicate.source === "csv" ? "csv+enablebanking" : duplicate.source;
+        duplicate.updatedAt = new Date().toISOString();
+      }
+      skipped += 1;
+      continue;
+    }
+    existing.add(fingerprint);
+    state.transactions.unshift(tx);
+    imported += 1;
+  }
+  if (sync.dateTo) ui.month = toMonthKey(sync.dateTo);
+  return { imported, skipped };
+}
+
+function backfillOpenBankingMetadata(transaction, remote) {
+  const openBanking = remote.openBanking || {};
+  transaction.merchantCategoryCode ||= remote.merchantCategoryCode || openBanking.merchantCategoryCode || "";
+  transaction.bankTransactionCode ||= remote.bankTransactionCode || openBanking.bankTransactionCode || "";
+  transaction.counterpartyName ||= remote.counterpartyName || openBanking.counterpartyName || "";
+  transaction.counterpartyAccount ||= remote.counterpartyAccount || openBanking.counterpartyAccount || "";
+  transaction.openBanking = { ...(transaction.openBanking || {}), ...openBanking };
+  const suggestion = suggestCategoryForBankTransaction({ ...remote, accountId: transaction.accountId });
+  if ((!transaction.categoryId || transaction.categoryId === fallbackCategoryId() || transaction.needsReview) && suggestion.categoryId) {
+    transaction.categoryId = suggestion.categoryId;
+    transaction.categoryConfidence = suggestion.confidence || 0;
+    transaction.categorySource = suggestion.source || "";
+    transaction.categoryReason = suggestion.reason || "";
+    transaction.needsReview = suggestion.confidence < 78;
+    if (suggestion.relationType && !transaction.relationType) transaction.relationType = suggestion.relationType;
+  }
+  if (!transaction.relationKey && (remote.relationKey || transaction.counterpartyName)) transaction.relationKey = remote.relationKey || transaction.counterpartyName;
+}
+
+function ensureLocalAccountForEnableBanking(remote, accounts) {
+  const bankSync = getBankSyncState();
+  const remoteAccount = accounts.find((account) => account.id === remote.externalAccountId) || { id: remote.externalAccountId, name: remote.accountName };
+  const mapped = bankSync.accountMappings?.[remoteAccount.id];
+  if (mapped && !mapped.startsWith("new:")) return mapped;
+  const name = mapped?.startsWith("new:") ? mapped.slice(4) : remoteAccount.name || remote.accountName || "Enable Banking konto";
+  const existing = findAccountByName(name);
+  if (existing) {
+    bankSync.accountMappings[remoteAccount.id] = existing.id;
+    return existing.id;
+  }
+  const balance = Number(remoteAccount.balances?.[0]?.balance_amount?.amount || remoteAccount.balances?.[0]?.balanceAmount?.amount || 0);
+  const account = { id: `eb_acc_${simpleHash(remoteAccount.id || name)}`, name, type: inferAccountType(name), balance, enableBankingAccountId: remoteAccount.id };
+  state.accounts.push(account);
+  bankSync.accountMappings[remoteAccount.id] = account.id;
+  return account.id;
+}
+
+async function loadLocalCsvFolder() {
+  try {
+    const data = await apiFetch("/api/local-csv/files");
+    if (!data.files?.length) {
+      notify(`Ingen CSV-filer fundet i ${data.directory || "lokal mappe"}.`, "danger");
+      return;
+    }
+    await buildImportDraftFromNamedTexts(data.files);
+    notify(`${data.files.length} CSV-fil${data.files.length === 1 ? "" : "er"} indlæst fra ${data.directory}. Kontrollér mapping og klik Importér.`);
+    ui.view = "import";
+    render();
+  } catch (error) {
+    notify(`Kunne ikke indlæse lokal CSV-mappe: ${error.message}`, "danger");
+  }
+}
+
+async function refreshGoCardlessStatus() {
+  try {
+    const config = await apiFetch("/api/gocardless/config");
+    const bankSync = getBankSyncState();
+    bankSync.config = config;
+    saveState();
+    notify(config.configured ? "GoCardless backend er klar." : "Backend kører, men GoCardless API keys mangler i .env.", config.configured ? "info" : "danger");
+  } catch (error) {
+    notify(`Bank-sync kræver Node-serveren. Start med ./scripts/start.sh. (${error.message})`, "danger");
+  }
+}
+
+async function runGoCardlessDiagnostics() {
+  try {
+    const diagnostics = await apiFetch("/api/gocardless/diagnostics");
+    const bankSync = getBankSyncState();
+    bankSync.diagnostics = diagnostics;
+    bankSync.config = { ...(bankSync.config || {}), configured: diagnostics.configured, institutionId: diagnostics.institutionId, country: diagnostics.country };
+    saveState();
+    notify(diagnostics.token?.ok && diagnostics.institution?.ok ? "GoCardless-diagnose er OK." : "Diagnose kørt — der er noget du skal tjekke.", diagnostics.token?.ok && diagnostics.institution?.ok ? "info" : "danger");
+  } catch (error) {
+    notify(`Kunne ikke køre diagnose: ${error.message}`, "danger");
+  }
+}
+
+async function startGoCardlessConsent() {
+  try {
+    const redirect = `${window.location.origin}${window.location.pathname}`;
+    const requisition = await apiFetch("/api/gocardless/requisitions", { method: "POST", body: { redirect } });
+    const bankSync = getBankSyncState();
+    bankSync.lastRequisitionId = requisition.id;
+    bankSync.lastConsentLink = requisition.link;
+    saveState();
+    window.location.href = requisition.link;
+  } catch (error) {
+    notify(`Kunne ikke starte GoCardless-samtykke: ${error.message}`, "danger");
+  }
+}
+
+async function refreshGoCardlessAccounts() {
+  try {
+    const data = await apiFetch("/api/gocardless/accounts");
+    const bankSync = getBankSyncState();
+    bankSync.accounts = data.accounts || [];
+    for (const account of bankSync.accounts) {
+      bankSync.accountMappings[account.id] ||= findAccountByName(account.name)?.id || `new:${account.name}`;
+    }
+    saveState();
+    notify(`${bankSync.accounts.length} ${bankSync.accounts.length === 1 ? "GoCardless-konto" : "GoCardless-konti"} hentet.`);
+  } catch (error) {
+    notify(`Kunne ikke hente GoCardless-konti: ${error.message}`, "danger");
+  }
+}
+
+async function syncGoCardlessTransactions(silent = false) {
+  try {
+    const dateFrom = ui.syncDateFrom || uiMonthStart(ui.month);
+    const dateTo = ui.syncDateTo || todayISO();
+    const data = await apiFetch(`/api/gocardless/sync?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
+    const result = importGoCardlessTransactions(data);
+    const bankSync = getBankSyncState();
+    bankSync.accounts = data.accounts || bankSync.accounts;
+    bankSync.lastSyncAt = data.syncedAt || new Date().toISOString();
+    bankSync.lastImportCount = result.imported;
+    bankSync.lastDateFrom = dateFrom;
+    bankSync.lastDateTo = dateTo;
+    saveState();
+    ui.view = "oprydning";
+    if (!silent || result.imported) notify(`${result.imported} nye bankpostering${result.imported === 1 ? "" : "er"} importeret. ${result.skipped} dublet${result.skipped === 1 ? "" : "ter"} sprunget over${data.errors?.length ? `, ${data.errors.length} konto-fejl` : ""}.`);
+  } catch (error) {
+    if (!silent) notify(`Bank-sync fejlede: ${error.message}`, "danger");
+  }
+}
+
+function importGoCardlessTransactions(sync) {
+  const existing = new Set(state.transactions.map(transactionFingerprint));
+  let imported = 0;
+  let skipped = 0;
+  for (const remote of sync.transactions || []) {
+    const accountId = ensureLocalAccountForGoCardless(remote, sync.accounts || []);
+    const tx = {
+      id: `tx_${remote.id || uid("gc")}`,
+      accountId,
+      date: remote.date,
+      description: remote.description,
+      amount: Number(remote.amount || 0),
+      categoryId: matchCategoryByRules(remote.description) || fallbackCategoryId(),
+      note: remote.status === "pending" ? "Afventer bogføring" : "",
+      relationType: "",
+      relationKey: "",
+      linkedTransactionId: "",
+      matchGroupId: "",
+      source: "gocardless",
+      externalId: remote.externalId,
+      externalAccountId: remote.externalAccountId,
+      importedAt: sync.syncedAt || new Date().toISOString(),
+    };
+    const fingerprint = transactionFingerprint(tx);
+    const duplicate = findLikelyDuplicateTransaction(tx);
+    if (existing.has(fingerprint) || duplicate) {
+      if (duplicate) {
+        duplicate.externalId ||= remote.externalId;
+        duplicate.externalAccountId ||= remote.externalAccountId;
+        duplicate.source = duplicate.source === "csv" ? "csv+gocardless" : duplicate.source;
+        duplicate.updatedAt = new Date().toISOString();
+      }
+      skipped += 1;
+      continue;
+    }
+    existing.add(fingerprint);
+    state.transactions.unshift(tx);
+    imported += 1;
+  }
+  if (sync.dateFrom) ui.month = toMonthKey(sync.dateFrom);
+  return { imported, skipped };
+}
+
+function findOverlapDuplicates() {
+  const groups = buildOverlapGroups(state.transactions || []);
+  const removable = new Set();
+  for (const group of groups) {
+    const sorted = group.slice().sort((a, b) => overlapKeepScore(b) - overlapKeepScore(a));
+    for (const tx of sorted.slice(1)) removable.add(tx.id);
+  }
+  return { groups, removableCount: removable.size };
+}
+
+function removeOverlapDuplicates() {
+  const groups = buildOverlapGroups(state.transactions || []);
+  const removeIds = new Set();
+  for (const group of groups) {
+    const sorted = group.slice().sort((a, b) => overlapKeepScore(b) - overlapKeepScore(a));
+    const keep = sorted[0];
+    for (const duplicate of sorted.slice(1)) {
+      removeIds.add(duplicate.id);
+      keep.externalId ||= duplicate.externalId;
+      keep.externalAccountId ||= duplicate.externalAccountId;
+      if (String(keep.source || "").includes("enablebanking") && String(duplicate.source || "").includes("csv")) keep.source = "enablebanking";
+      keep.updatedAt = new Date().toISOString();
+    }
+  }
+  state.transactions = state.transactions.filter((tx) => !removeIds.has(tx.id));
+  return { removed: removeIds.size, groups: groups.length };
+}
+
+function buildOverlapGroups(transactions) {
+  const buckets = new Map();
+  for (const tx of transactions) {
+    for (const date of [tx.date, shiftIsoDate(tx.date, -1), shiftIsoDate(tx.date, 1)].filter(Boolean)) {
+      const key = [tx.accountId, date, Number(tx.amount || 0).toFixed(2)].join("|");
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(tx);
+    }
+  }
+  const byId = new Map(transactions.map((tx) => [tx.id, tx]));
+  const graph = new Map();
+  const seenPairs = new Set();
+  for (const bucket of buckets.values()) {
+    const unique = Array.from(new Map(bucket.map((tx) => [tx.id, tx])).values());
+    for (let i = 0; i < unique.length; i += 1) {
+      for (let j = i + 1; j < unique.length; j += 1) {
+        const a = unique[i];
+        const b = unique[j];
+        const pair = [a.id, b.id].sort().join("|");
+        if (seenPairs.has(pair)) continue;
+        seenPairs.add(pair);
+        if (!isOverlapDuplicate(a, b)) continue;
+        if (!graph.has(a.id)) graph.set(a.id, new Set());
+        if (!graph.has(b.id)) graph.set(b.id, new Set());
+        graph.get(a.id).add(b.id);
+        graph.get(b.id).add(a.id);
+      }
+    }
+  }
+  const visited = new Set();
+  const groups = [];
+  for (const id of graph.keys()) {
+    if (visited.has(id)) continue;
+    const stack = [id];
+    const ids = [];
+    visited.add(id);
+    while (stack.length) {
+      const current = stack.pop();
+      ids.push(current);
+      for (const next of graph.get(current) || []) {
+        if (visited.has(next)) continue;
+        visited.add(next);
+        stack.push(next);
+      }
+    }
+    if (ids.length > 1) groups.push(ids.map((item) => byId.get(item)).filter(Boolean));
+  }
+  return groups;
+}
+
+function isOverlapDuplicate(a, b) {
+  if (!a || !b || a.id === b.id) return false;
+  if (a.accountId !== b.accountId) return false;
+  if (Math.abs(Number(a.amount || 0) - Number(b.amount || 0)) > 0.01) return false;
+  if (Math.abs(daysBetween(a.date, b.date)) > 1) return false;
+  if (a.externalId && b.externalId && a.externalId === b.externalId) return true;
+  const leftSource = String(a.source || "");
+  const rightSource = String(b.source || "");
+  const crossBankCsv = (leftSource.includes("enablebanking") && rightSource.includes("csv")) || (rightSource.includes("enablebanking") && leftSource.includes("csv")) || (leftSource.includes("gocardless") && rightSource.includes("csv")) || (rightSource.includes("gocardless") && leftSource.includes("csv"));
+  const sameDate = a.date === b.date;
+  const similarity = textSimilarity(a.description, b.description);
+  if (crossBankCsv && sameDate) return true;
+  if (crossBankCsv && similarity >= 0.12) return true;
+  if (normalize(a.description) === normalize(b.description)) return true;
+  return similarity >= 0.55;
+}
+
+function overlapKeepScore(tx) {
+  const source = String(tx.source || "");
+  let score = 0;
+  if (source.includes("enablebanking")) score += 100;
+  else if (source.includes("gocardless")) score += 90;
+  else if (source.includes("csv+")) score += 80;
+  else if (source.includes("csv")) score += 50;
+  if (tx.externalId) score += 8;
+  if (tx.externalAccountId) score += 4;
+  if (tx.categoryId && tx.categoryId !== fallbackCategoryId()) score += 3;
+  score += Math.min(20, String(tx.description || "").length / 8);
+  return score;
+}
+
+function shiftIsoDate(date, days) {
+  if (!date) return "";
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  parsed.setDate(parsed.getDate() + days);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function findLikelyDuplicateTransaction(tx) {
+  return state.transactions.find((existing) => {
+    if (existing.accountId !== tx.accountId) return false;
+    if (Math.abs(Number(existing.amount || 0) - Number(tx.amount || 0)) > 0.01) return false;
+    if (Math.abs(daysBetween(existing.date, tx.date)) > 1) return false;
+    if (existing.externalId && tx.externalId && existing.externalId === tx.externalId) return true;
+    const similarity = textSimilarity(existing.description, tx.description);
+    return similarity >= 0.34 || merchantName(existing.description) === merchantName(tx.description);
+  });
+}
+
+function textSimilarity(a, b) {
+  const left = new Set(normalize(a).split(/\W+/).filter((word) => word.length >= 3));
+  const right = new Set(normalize(b).split(/\W+/).filter((word) => word.length >= 3));
+  if (!left.size || !right.size) return 0;
+  const intersection = Array.from(left).filter((word) => right.has(word)).length;
+  return intersection / Math.max(left.size, right.size);
+}
+
+function ensureLocalAccountForGoCardless(remote, accounts) {
+  const bankSync = getBankSyncState();
+  const remoteAccount = accounts.find((account) => account.id === remote.externalAccountId) || { id: remote.externalAccountId, name: remote.accountName };
+  const mapped = bankSync.accountMappings?.[remoteAccount.id];
+  if (mapped && !mapped.startsWith("new:")) return mapped;
+  const name = mapped?.startsWith("new:") ? mapped.slice(4) : remoteAccount.name || remote.accountName || "GoCardless konto";
+  const existing = findAccountByName(name);
+  if (existing) {
+    bankSync.accountMappings[remoteAccount.id] = existing.id;
+    return existing.id;
+  }
+  const account = { id: `gc_acc_${simpleHash(remoteAccount.id || name)}`, name, type: inferAccountType(name), balance: Number(remoteAccount.balances?.[0]?.balanceAmount?.amount || 0), gcAccountId: remoteAccount.id };
+  state.accounts.push(account);
+  bankSync.accountMappings[remoteAccount.id] = account.id;
+  return account.id;
+}
+
+function simpleHash(value) {
+  let hash = 0;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) hash = Math.imul(31, hash) + text.charCodeAt(index) | 0;
+  return Math.abs(hash).toString(36);
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Filen kunne ikke læses"));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
+async function readCsvFiles(files) {
+  try {
+    const namedTexts = [];
+    for (const file of files) namedTexts.push({ fileName: file.name, content: await readFileAsText(file) });
+    await buildImportDraftFromNamedTexts(namedTexts);
+  } catch (error) {
+    console.error(error);
+    notify("CSV-filerne kunne ikke læses. Prøv at eksportere som almindelig CSV.", "danger");
+  }
+}
+
+async function buildImportDraftFromNamedTexts(files) {
+  const drafts = [];
+  for (const file of files) {
+    const parsed = parseCsv(file.content || "");
+    if (!parsed.rows.length) continue;
+    const accountName = inferAccountNameFromFile(file.fileName);
+    const existingAccount = findAccountByName(accountName);
+    drafts.push({
+      fileName: file.fileName,
+      accountName,
+      accountChoice: existingAccount?.id || `new:${accountName}`,
+      headers: parsed.headers,
+      rows: parsed.rows,
+      map: detectCsvMapping(parsed.headers, parsed.rows),
+      headerless: parsed.headerless,
+    });
+  }
+  if (!drafts.length) {
+    notify("Ingen af CSV-filerne indeholdt posteringer.", "danger");
+    return;
+  }
+  ui.importDraft = { files: drafts };
+  const rowCount = drafts.reduce((sum, draft) => sum + draft.rows.length, 0);
+  notify(`${drafts.length} fil${drafts.length === 1 ? "" : "er"} klar til import med ${rowCount} række${rowCount === 1 ? "" : "r"}.`);
+}
+
+function inferAccountNameFromFile(fileName) {
+  const base = String(fileName || "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!base || /posteringsdetaljer|posteringer|kontoudtog|export|eksport/i.test(base)) {
+    return state.accounts[0]?.name || "Sparekassen Kronjylland";
+  }
+  return base;
+}
+
+function findAccountByName(name) {
+  const wanted = normalize(name);
+  return state.accounts.find((account) => normalize(account.name) === wanted);
+}
+
+function ensureAccountForDraft(draft) {
+  if (!draft.accountChoice?.startsWith("new:")) return draft.accountChoice;
+  const name = draft.accountChoice.slice(4).trim() || draft.accountName || "Ny konto";
+  const existing = findAccountByName(name);
+  if (existing) return existing.id;
+  const account = { id: uid("acc"), name, type: inferAccountType(name), balance: 0 };
+  state.accounts.push(account);
+  return account.id;
+}
+
+function inferAccountType(name) {
+  const text = normalize(name);
+  if (text.includes("budget")) return "Budgetkonto";
+  if (text.includes("bolig")) return "Boligkonto";
+  if (text.includes("sommerhus")) return "Sommerhus";
+  if (text.includes("faelles") || text.includes("fælles")) return "Fælleskonto";
+  return "Bankkonto";
+}
+
+function importDraftTransactions() {
+  const files = ui.importDraft?.files || [];
+  if (!files.length) return;
+  const existing = new Set(state.transactions.map(transactionFingerprint));
+  const imported = [];
+  const accountNames = new Set();
+  let skipped = 0;
+  let invalid = 0;
+  let skippedByMonth = 0;
+  let skippedFiles = 0;
+
+  for (const draft of files) {
+    const { date, description, amount, counterparty } = draft.map;
+    if (!date || !description || !amount || !draft.accountChoice) {
+      skippedFiles += 1;
+      continue;
+    }
+    const accountId = ensureAccountForDraft(draft);
+    const account = accountById(accountId);
+    if (account) accountNames.add(account.name);
+
+    for (const row of draft.rows) {
+      const parsedDate = parseDate(row[date]);
+      const parsedAmount = parseAmount(row[amount]);
+      const descriptionParts = [row[description], counterparty ? row[counterparty] : ""].filter(Boolean).map((item) => String(item).trim());
+      const parsedDescription = descriptionParts.join(" · ") || "Importeret post";
+
+      if (!parsedDate || !Number.isFinite(parsedAmount)) {
+        invalid += 1;
+        continue;
+      }
+
+      if (ui.importOnlyMonth && toMonthKey(parsedDate) !== ui.importMonth) {
+        skippedByMonth += 1;
+        continue;
+      }
+
+      const tx = {
+        id: uid("tx"),
+        accountId,
+        date: parsedDate,
+        description: parsedDescription,
+        amount: parsedAmount,
+        categoryId: matchCategoryByRules(parsedDescription) || fallbackCategoryId(),
+        note: "",
+        relationType: "",
+        relationKey: "",
+        linkedTransactionId: "",
+        matchGroupId: "",
+        source: "csv",
+        importedAt: new Date().toISOString(),
+        fileName: draft.fileName,
+      };
+
+      const fingerprint = transactionFingerprint(tx);
+      if (existing.has(fingerprint)) {
+        skipped += 1;
+        continue;
+      }
+      existing.add(fingerprint);
+      imported.push(tx);
+    }
+  }
+
+  state.transactions = [...imported, ...state.transactions];
+  ui.importDraft = null;
+  ui.importAccountId = state.accounts[0]?.id || "";
+  if (ui.importOnlyMonth) ui.month = ui.importMonth;
+  else if (imported[0]) ui.month = toMonthKey(imported[0].date);
+  saveState();
+  ui.view = "oprydning";
+  notify(`${imported.length} postering${imported.length === 1 ? "" : "er"} importeret fra ${accountNames.size} ${accountNames.size === 1 ? "konto" : "konti"}. ${skipped} dublet${skipped === 1 ? "" : "ter"} sprunget over${skippedByMonth ? `, ${skippedByMonth} uden for valgt måned` : ""}${invalid ? `, ${invalid} ugyldige rækker` : ""}${skippedFiles ? `, ${skippedFiles} fil${skippedFiles === 1 ? "" : "er"} uden genkendelige posteringer` : ""}.`);
+}
+
+function parseCsv(text) {
+  const cleaned = text.replace(/^\uFEFF/, "");
+  const delimiter = detectDelimiter(cleaned);
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < cleaned.length; index += 1) {
+    const char = cleaned[index];
+    const next = cleaned[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === delimiter && !inQuotes) {
+      row.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(cell.trim());
+      if (row.some((value) => value !== "")) rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  row.push(cell.trim());
+  if (row.some((value) => value !== "")) rows.push(row);
+
+  if (!rows.length) return { headers: [], rows: [], headerless: false };
+  const maxColumns = Math.max(...rows.map((values) => values.length));
+  const hasHeader = looksLikeHeaderRow(rows[0]);
+  const headers = makeUniqueHeaders(hasHeader ? rows[0] : [], maxColumns);
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+  const objects = dataRows.map((values) => {
+    const object = {};
+    headers.forEach((header, index) => {
+      object[header] = values[index] || "";
+    });
+    return object;
+  });
+  return { headers, rows: objects, headerless: !hasHeader };
+}
+
+function makeUniqueHeaders(values, count) {
+  const seen = new Map();
+  return Array.from({ length: count }, (_, index) => {
+    const base = String(values[index] || "").trim() || `Kolonne ${index + 1}`;
+    const current = seen.get(base) || 0;
+    seen.set(base, current + 1);
+    return current ? `${base} (${current + 1})` : base;
+  });
+}
+
+function looksLikeAmountValue(value) {
+  const number = parseAmount(value);
+  if (!Number.isFinite(number)) return false;
+  const text = String(value || "").trim();
+  return /\d/.test(text) && /[,.]/.test(text) && Math.abs(number) > 0;
+}
+
+function looksLikeHeaderRow(values) {
+  const joined = normalize(values.join(" "));
+  const knownHeaderWords = ["dato", "tekst", "beskrivelse", "postering", "belob", "beløb", "amount", "modpart", "saldo"];
+  if (knownHeaderWords.some((word) => joined.includes(word))) return true;
+  const dataLikeCells = values.filter((value) => parseDate(value) || looksLikeAmountValue(value)).length;
+  const textCells = values.filter((value) => /[a-zæøå]/i.test(String(value || ""))).length;
+  return dataLikeCells <= 1 && textCells >= 2;
+}
+
+function detectDelimiter(text) {
+  const firstLines = text.split(/\r?\n/).slice(0, 5).join("\n");
+  const candidates = [";", "\t", ","];
+  return candidates
+    .map((delimiter) => ({ delimiter, count: (firstLines.match(new RegExp(delimiter === "\t" ? "\\t" : escapeRegExp(delimiter), "g")) || []).length }))
+    .sort((a, b) => b.count - a.count)[0].delimiter;
+}
+
+function detectCsvMapping(headers, rows = []) {
+  const find = (patterns) => headers.find((header) => patterns.some((pattern) => normalize(header).includes(pattern))) || "";
+  const mapping = {
+    date: find(["dato", "bogforing", "bogføring", "valør", "valor", "date"]),
+    description: find(["tekst", "beskrivelse", "postering", "meddelelse", "details", "description"]),
+    amount: find(["belob", "beløb", "amount", "dkk", "kr"]),
+    counterparty: find(["modpart", "afsender", "modtager", "navn", "counterparty"]),
+  };
+
+  if (mapping.date && mapping.description && mapping.amount) return mapping;
+
+  const stats = headers.map((header, index) => {
+    const values = rows.map((row) => String(row[header] || "").trim()).filter(Boolean);
+    const dateCount = values.filter(parseDate).length;
+    const amountCount = values.filter(looksLikeAmountValue).length;
+    const letterCount = values.reduce((sum, value) => sum + (value.match(/[a-zæøå]/gi) || []).length, 0);
+    const avgLength = values.length ? values.reduce((sum, value) => sum + value.length, 0) / values.length : 0;
+    return { header, index, values, dateCount, amountCount, letterCount, avgLength, nonEmpty: values.length, unique: new Set(values).size };
+  });
+
+  mapping.amount ||= stats
+    .filter((stat) => stat.amountCount > 0)
+    .sort((a, b) => b.amountCount - a.amountCount || a.index - b.index)[0]?.header || "";
+  mapping.date ||= stats
+    .filter((stat) => stat.dateCount > 0)
+    .sort((a, b) => b.dateCount - a.dateCount || a.index - b.index)[0]?.header || "";
+  mapping.description ||= stats
+    .filter((stat) => stat.header !== mapping.amount && stat.header !== mapping.date && stat.letterCount > 0)
+    .sort((a, b) => (b.nonEmpty + b.unique + b.letterCount / 20 + b.avgLength) - (a.nonEmpty + a.unique + a.letterCount / 20 + a.avgLength))[0]?.header || "";
+
+  return mapping;
+}
+
+function transactionFingerprint(tx) {
+  return [tx.accountId, tx.date, Number(tx.amount).toFixed(2), normalize(tx.description)].join("|");
+}
+
+function exportBackup() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadFile(`finansblik-backup-${stamp}.json`, JSON.stringify(state, null, 2), "application/json");
+  notify("Backup-filen er hentet.");
+}
+
+function readBackupFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(String(reader.result || ""));
+      if (!parsed || !Array.isArray(parsed.transactions) || !Array.isArray(parsed.accounts)) {
+        notify("Backup-filen ligner ikke en Finansblik-backup.", "danger");
+        return;
+      }
+      if (!confirm("Importer backup og overskriv nuværende data?")) return;
+      state = {
+        version: 1,
+        settings: parsed.settings || { householdName: "Husstanden", selectedMonth: currentMonthKey() },
+        accounts: parsed.accounts || [],
+        categories: parsed.categories || [],
+        rules: parsed.rules || [],
+        transactions: parsed.transactions || [],
+      };
+      ui.month = state.settings.selectedMonth || currentMonthKey();
+      ui.importAccountId = state.accounts[0]?.id || "";
+      ui.editingId = null;
+      ui.importDraft = null;
+      saveState();
+      notify("Backup-filen blev importeret.");
+    } catch (error) {
+      console.error(error);
+      notify("Backup-filen kunne ikke læses.", "danger");
+    }
+  };
+  reader.readAsText(file, "utf-8");
+}
+
+function downloadFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function option(value, label, selected) {
+  return `<option value="${escapeHtml(value)}"${selected ? " selected" : ""}>${escapeHtml(label)}</option>`;
+}
+
+function sourceLabel(source) {
+  if (String(source || "").includes("enablebanking")) return "Bank-sync";
+  if (String(source || "").includes("gocardless")) return "GoCardless";
+  if (source === "csv") return "CSV";
+  if (source === "manuel") return "Manuel";
+  if (source === "redigeret") return "Redigeret";
+  return "Ukendt";
+}
+
+function kindLabel(kind) {
+  if (kind === "income") return "Indtægt";
+  if (kind === "transfer") return "Intern overførsel";
+  return "Udgift";
+}
+
+function isPrivacyMode() {
+  return Boolean(ui?.privacyMode);
+}
+
+function privateCurrencyLabel() {
+  return "•••• kr.";
+}
+
+function privateNumberLabel() {
+  return "••••";
+}
+
+function formatCurrency(value) {
+  if (isPrivacyMode()) return privateCurrencyLabel();
+  return new Intl.NumberFormat("da-DK", {
+    style: "currency",
+    currency: "DKK",
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
+  }).format(Number(value || 0));
+}
+
+function formatPercent(value) {
+  if (isPrivacyMode()) return "•• %";
+  return new Intl.NumberFormat("da-DK", { style: "percent", maximumFractionDigits: 0 }).format(value || 0);
+}
+
+function formatDate(value) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("da-DK", { day: "2-digit", month: "short" }).format(date);
+}
+
+function formatAmountInput(value) {
+  if (isPrivacyMode()) return "";
+  return new Intl.NumberFormat("da-DK", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(value || 0));
+}
+
+function privacyInputAttrs() {
+  return isPrivacyMode() ? "disabled placeholder=\"Skjult\"" : "";
+}
+
+function parseAmount(value) {
+  if (typeof value === "number") return value;
+  let text = String(value || "").trim();
+  if (!text) return NaN;
+  text = text.replace(/\s/g, "").replace(/kr\.?|dkk/gi, "");
+  const negative = text.startsWith("-") || text.endsWith("-") || /^\(.*\)$/.test(text);
+  text = text.replace(/[()+-]/g, "");
+  const lastComma = text.lastIndexOf(",");
+  const lastDot = text.lastIndexOf(".");
+  if (lastComma > lastDot) {
+    text = text.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot > lastComma) {
+    text = text.replace(/,/g, "");
+  } else {
+    text = text.replace(",", ".");
+  }
+  const number = Number(text);
+  return negative ? -number : number;
+}
+
+function parseDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+
+  const match = text.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2}|\d{4})$/);
+  if (match) {
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    let year = Number(match[3]);
+    if (year < 100) year += 2000;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  const isoLike = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (isoLike) return `${isoLike[1]}-${isoLike[2]}-${isoLike[3]}`;
+
+  const date = new Date(text);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  return "";
+}
+
+function currentMonthKey() {
+  return toMonthKey(todayISO());
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function toMonthKey(dateString) {
+  return String(dateString || todayISO()).slice(0, 7);
+}
+
+function uiMonthStart(monthKey) {
+  return `${toMonthKey(monthKey)}-01`;
+}
+
+function uiMonthEnd(monthKey) {
+  const [year, month] = toMonthKey(monthKey).split("-").map(Number);
+  return `${year}-${String(month).padStart(2, "0")}-${String(new Date(year, month, 0).getDate()).padStart(2, "0")}`;
+}
+
+function shiftDate(isoDate, offsetDays) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  date.setDate(date.getDate() + Number(offsetDays || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function shiftDateByYears(isoDate, offsetYears) {
+  const date = new Date(`${isoDate}T00:00:00`);
+  date.setFullYear(date.getFullYear() + Number(offsetYears || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "";
+  return new Intl.DateTimeFormat("da-DK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
+function shiftMonth(monthKey, offset) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(year, month - 1 + offset, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function dateInMonth(monthKey, day) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const max = new Date(year, month, 0).getDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(day, max)).padStart(2, "0")}`;
+}
+
+function daysElapsedForMonth(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const totalDays = new Date(year, month, 0).getDate();
+  if (monthKey !== currentMonthKey()) return totalDays;
+  return Math.min(new Date().getDate(), totalDays);
+}
+
+function monthLabel(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const text = new Intl.DateTimeFormat("da-DK", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function shortMonthLabel(monthKey) {
+  const [year, month] = monthKey.split("-").map(Number);
+  return new Intl.DateTimeFormat("da-DK", { month: "short" }).format(new Date(year, month - 1, 1));
+}
+
+function normalize(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;",
+  })[char]);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || window.location.protocol === "file:") return;
+  const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  if (isLocal) {
+    navigator.serviceWorker.getRegistrations?.().then((registrations) => registrations.forEach((registration) => registration.unregister())).catch(() => {});
+    window.caches?.keys?.().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
+    return;
+  }
+  navigator.serviceWorker.register("./service-worker.js").catch((error) => {
+    console.info("Service worker blev ikke registreret", error);
+  });
+}
