@@ -5,6 +5,7 @@ const BRAND_TAGLINE = "Overblik og indsigt i privatøkonomien";
 const NAV_ITEMS = [
   { id: "overblik", label: "Overblik", hint: "" },
   { id: "formue", label: "Formue", hint: "" },
+  { id: "ny-lejlighed", label: "Ny lejlighed", hint: "" },
   { id: "rapporter", label: "Analyser", hint: "" },
   { id: "oprydning", label: "Ryd op", hint: "" },
   { id: "transaktioner", label: "Posteringer", hint: "" },
@@ -18,6 +19,53 @@ const DEFAULT_WEALTH_PROPERTIES = [
 ];
 
 const DEFAULT_WEALTH_PENSION = { provider: "PFA", value: 0 };
+
+const MOVING_CATEGORIES = [
+  { id: "flytning", label: "Flytning", tone: "sage" },
+  { id: "laan", label: "Lån & gebyrer", tone: "deep" },
+  { id: "moebler", label: "Møbler", tone: "warm" },
+  { id: "lamper", label: "Lamper", tone: "gold" },
+  { id: "koekken", label: "Køkken", tone: "mint" },
+  { id: "smaating", label: "Småting", tone: "soft" },
+  { id: "andet", label: "Andet", tone: "neutral" },
+];
+
+const MOVING_PAYERS = [
+  { id: "claes", label: "Claes" },
+  { id: "laura", label: "Laura" },
+  { id: "joint", label: "Fælles konto" },
+  { id: "unpaid", label: "Ikke betalt" },
+];
+
+const MOVING_SPLITS = [
+  { id: "shared", label: "Fælles 50/50" },
+  { id: "claes", label: "Claes betaler" },
+  { id: "laura", label: "Laura betaler" },
+  { id: "custom", label: "Egen fordeling" },
+  { id: "undecided", label: "Afklares" },
+];
+
+const MOVING_STATUSES = [
+  { id: "bought", label: "Købt" },
+  { id: "ordered", label: "Bestilt" },
+  { id: "planned", label: "Planlagt" },
+];
+
+const DEFAULT_MOVING_PROJECT = {
+  title: "Ny lejlighed",
+  shortTitle: "Ny lejlighed",
+  currentAddress: "",
+  newAddress: "",
+  accessDate: "2026-07-01",
+  loanDeadlineDaysBefore: 14,
+  loanChoice: "pending",
+  loanAmount: 0,
+  fixedRateCoupon: 4,
+  fixedRateCourse: 0,
+  fixedRateCourseTarget: 0,
+  fkortRate: 0,
+  items: [],
+};
 
 const RELATION_TYPES = [
   { id: "", label: "Ingen relation" },
@@ -125,6 +173,11 @@ const VIEW_COPY = {
     kicker: "Formue",
     title: "Formue",
     lead: "Kontanter, bolig, aktier og crypto — samlet uden støj.",
+  },
+  "ny-lejlighed": {
+    kicker: "Flytteprojekt",
+    title: "Ny lejlighed",
+    lead: "Flytning, lån, møbler og udlæg samlet ét sted.",
   },
   rapporter: {
     kicker: "Analyser",
@@ -276,6 +329,7 @@ function loadState() {
     parsed.settings.dateBasis ||= "economic";
     parsed.settings.privacyMode = Boolean(parsed.settings.privacyMode);
     parsed.settings.wealth = normalizeWealthSettings(parsed.settings.wealth);
+    parsed.movingProject = normalizeMovingProject(parsed.movingProject);
     return parsed;
   } catch (error) {
     console.warn("Kunne ikke læse gemte data", error);
@@ -473,6 +527,7 @@ function createSeedState() {
     rules: SIMPLIFIED_RULES.map((rule) => ({ ...rule })),
     transactions: [],
     bankSync: { accounts: [], accountMappings: {}, lastSyncAt: "", config: null, autoSyncOnOpen: false, enableBanking: { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 } },
+    movingProject: normalizeMovingProject(),
   };
 }
 
@@ -499,7 +554,7 @@ function uid(prefix = "id") {
 }
 
 function render() {
-  const copy = VIEW_COPY[ui.view] || VIEW_COPY.overblik;
+  const copy = viewCopyFor(ui.view);
   app.innerHTML = `
     <div class="app-shell ${ui.privacyMode ? "privacy-mode" : ""}">
       <aside class="sidebar">
@@ -514,7 +569,7 @@ function render() {
           ${NAV_ITEMS.map(
             (item) => `
               <button class="nav-button ${ui.view === item.id ? "active" : ""}" type="button" data-nav="${item.id}">
-                <span>${escapeHtml(item.label)}</span>
+                <span>${escapeHtml(navItemLabel(item))}</span>
                 ${item.hint ? `<small>${escapeHtml(item.hint)}</small>` : ""}
               </button>`
           ).join("")}
@@ -557,10 +612,30 @@ function render() {
   `;
 }
 
+function viewCopyFor(view) {
+  if (view === "ny-lejlighed") {
+    const project = getMovingProject();
+    return {
+      kicker: "Flytteprojekt",
+      title: project.title || project.shortTitle || "Ny lejlighed",
+      lead: "Flytning, lån, møbler og udlæg samlet ét sted.",
+    };
+  }
+  return VIEW_COPY[view] || VIEW_COPY.overblik;
+}
+
+function navItemLabel(item) {
+  if (item.id !== "ny-lejlighed") return item.label;
+  const project = getMovingProject();
+  return project.shortTitle || project.title || item.label;
+}
+
 function renderView() {
   switch (ui.view) {
     case "formue":
       return renderWealthView();
+    case "ny-lejlighed":
+      return renderMovingProjectView();
     case "rapporter":
       return renderReportsView();
     case "udgifter":
@@ -1619,6 +1694,392 @@ function renderDashboardCleanup(cleanup) {
     </section>
   `;
 }
+
+
+function normalizeMovingProject(project = {}) {
+  const source = project && typeof project === "object" ? project : {};
+  return {
+    ...DEFAULT_MOVING_PROJECT,
+    ...source,
+    title: String(source.title || DEFAULT_MOVING_PROJECT.title),
+    shortTitle: String(source.shortTitle || source.title || DEFAULT_MOVING_PROJECT.shortTitle),
+    currentAddress: String(source.currentAddress || ""),
+    newAddress: String(source.newAddress || ""),
+    accessDate: isIsoDate(source.accessDate) ? source.accessDate : DEFAULT_MOVING_PROJECT.accessDate,
+    loanDeadlineDaysBefore: Math.max(0, Number(source.loanDeadlineDaysBefore ?? DEFAULT_MOVING_PROJECT.loanDeadlineDaysBefore) || 0),
+    loanChoice: ["pending", "fixed", "fkort"].includes(source.loanChoice) ? source.loanChoice : "pending",
+    loanAmount: Math.max(0, Number(source.loanAmount || 0) || 0),
+    fixedRateCoupon: Math.max(0, Number(source.fixedRateCoupon || DEFAULT_MOVING_PROJECT.fixedRateCoupon) || 0),
+    fixedRateCourse: Math.max(0, Number(source.fixedRateCourse || 0) || 0),
+    fixedRateCourseTarget: Math.max(0, Number(source.fixedRateCourseTarget || DEFAULT_MOVING_PROJECT.fixedRateCourseTarget) || 0),
+    fkortRate: Math.max(0, Number(source.fkortRate || 0) || 0),
+    items: Array.isArray(source.items) ? source.items.map(normalizeMovingItem).filter(Boolean) : [],
+  };
+}
+
+function normalizeMovingItem(item = {}) {
+  if (!item || typeof item !== "object") return null;
+  const categoryIds = new Set(MOVING_CATEGORIES.map((category) => category.id));
+  const payerIds = new Set(MOVING_PAYERS.map((payer) => payer.id));
+  const splitIds = new Set(MOVING_SPLITS.map((split) => split.id));
+  const statusIds = new Set(MOVING_STATUSES.map((status) => status.id));
+  return {
+    id: item.id || uid("move"),
+    name: String(item.name || "Ny ting"),
+    category: categoryIds.has(item.category) ? item.category : "andet",
+    price: Math.max(0, Number(item.price || 0) || 0),
+    paidBy: payerIds.has(item.paidBy) ? item.paidBy : "claes",
+    split: splitIds.has(item.split) ? item.split : "shared",
+    claesSharePct: clampPercent(Number(item.claesSharePct ?? 50)),
+    lauraSharePct: clampPercent(Number(item.lauraSharePct ?? 50)),
+    link: String(item.link || ""),
+    imageUrl: String(item.imageUrl || ""),
+    status: statusIds.has(item.status) ? item.status : "bought",
+    note: String(item.note || ""),
+    date: isIsoDate(item.date) ? item.date : "",
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || "",
+  };
+}
+
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+}
+
+function getMovingProject() {
+  state.movingProject = normalizeMovingProject(state.movingProject);
+  return state.movingProject;
+}
+
+function movingLoanDeadline(project = getMovingProject()) {
+  return shiftDate(project.accessDate || DEFAULT_MOVING_PROJECT.accessDate, -Number(project.loanDeadlineDaysBefore || 0));
+}
+
+function movingCategoryById(id) {
+  return MOVING_CATEGORIES.find((category) => category.id === id) || MOVING_CATEGORIES.at(-1);
+}
+
+function movingLabel(collection, id) {
+  return collection.find((item) => item.id === id)?.label || id || "—";
+}
+
+function movingSplitShares(item) {
+  const amount = Number(item.price || 0);
+  if (item.split === "shared") return { claes: amount / 2, laura: amount / 2, undecided: 0 };
+  if (item.split === "claes") return { claes: amount, laura: 0, undecided: 0 };
+  if (item.split === "laura") return { claes: 0, laura: amount, undecided: 0 };
+  if (item.split === "custom") {
+    const totalPct = Math.max(1, Number(item.claesSharePct || 0) + Number(item.lauraSharePct || 0));
+    return {
+      claes: amount * (Number(item.claesSharePct || 0) / totalPct),
+      laura: amount * (Number(item.lauraSharePct || 0) / totalPct),
+      undecided: 0,
+    };
+  }
+  return { claes: 0, laura: 0, undecided: amount };
+}
+
+function getMovingSummary(project = getMovingProject()) {
+  const items = project.items || [];
+  const total = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const committed = items.filter((item) => item.status !== "planned").reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const planned = Math.max(0, total - committed);
+  const paidClaes = items.filter((item) => item.paidBy === "claes").reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const paidLaura = items.filter((item) => item.paidBy === "laura").reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const jointPaid = items.filter((item) => item.paidBy === "joint").reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const unpaid = items.filter((item) => item.paidBy === "unpaid" || item.status === "planned").reduce((sum, item) => sum + Number(item.price || 0), 0);
+  let settlementNet = 0;
+  let claesShare = 0;
+  let lauraShare = 0;
+  let undecidedShare = 0;
+  for (const item of items) {
+    const shares = movingSplitShares(item);
+    claesShare += shares.claes;
+    lauraShare += shares.laura;
+    undecidedShare += shares.undecided;
+    if (item.paidBy === "claes") settlementNet += shares.laura;
+    if (item.paidBy === "laura") settlementNet -= shares.claes;
+  }
+  const byCategory = MOVING_CATEGORIES.map((category) => {
+    const rows = items.filter((item) => item.category === category.id);
+    const amount = rows.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    return { category, amount, count: rows.length, share: total ? amount / total : 0 };
+  }).filter((row) => row.amount || row.count);
+  const fixedCourseLoss = project.loanAmount && project.fixedRateCourse ? project.loanAmount * Math.max(0, 100 - project.fixedRateCourse) / 100 : 0;
+  return { total, committed, planned, paidClaes, paidLaura, jointPaid, unpaid, settlementNet, claesShare, lauraShare, undecidedShare, byCategory, fixedCourseLoss, itemCount: items.length };
+}
+
+function renderMovingProjectView() {
+  const project = getMovingProject();
+  const summary = getMovingSummary(project);
+  const deadline = movingLoanDeadline(project);
+  return `
+    <section class="move-hero" aria-label="Flytteprojekt ${escapeHtml(project.title)}">
+      <div class="move-hero-main">
+        <p class="eyebrow">${escapeHtml(project.currentAddress || "Nuværende bolig")} → ${escapeHtml(project.newAddress || project.title)}</p>
+        <h2>${escapeHtml(project.title)}</h2>
+        <div class="move-hero-total">${formatCurrency(summary.total)}</div>
+        <p class="move-hero-copy">Alt til flytning, lån og nye køb — uden at blande det ind i de normale forbrugstal.</p>
+      </div>
+      <div class="move-date-stack">
+        <div><span>Overtagelse</span><strong>${formatDate(project.accessDate)}</strong></div>
+        <div><span>Lån senest</span><strong>${formatDate(deadline)}</strong></div>
+        <div><span>Valg</span><strong>${movingLoanChoiceLabel(project)}</strong></div>
+      </div>
+    </section>
+
+    <section class="move-kpi-grid section" aria-label="Nøgletal for flytteprojekt">
+      ${renderMovingKpi("Projekt total", summary.total, `${summary.itemCount} linjer`, "deep")}
+      ${renderMovingKpi("Købt/bestilt", summary.committed, `${formatCurrency(summary.planned)} planlagt`, "sage")}
+      ${renderMovingKpi("Afregning", Math.abs(summary.settlementNet), movingSettlementText(summary.settlementNet), summary.settlementNet ? "gold" : "soft")}
+      ${renderMovingKpi("Kursfradrag", summary.fixedCourseLoss, project.fixedRateCourse ? `Fast ${project.fixedRateCoupon}% ved kurs ${formatNumber(project.fixedRateCourse)}` : "Udfyld kurs", "warm")}
+    </section>
+
+    <section class="move-layout section">
+      <div class="move-left-stack">
+        ${renderMovingLoanPanel(project, summary)}
+        ${renderMovingCategoryPanel(summary)}
+      </div>
+      <div class="move-right-stack">
+        ${renderMovingAddForm()}
+        ${renderMovingSettingsForm(project)}
+      </div>
+    </section>
+
+    <section class="move-ledger section panel pad">
+      <div class="section-heading clean-heading">
+        <div><h2>Køb og udlæg</h2><p>Billede, link, pris, hvem der lagde ud — og om det skal deles.</p></div>
+        <span class="move-ledger-total">${formatCurrency(summary.total)}</span>
+      </div>
+      ${renderMovingItems(project.items)}
+    </section>
+  `;
+}
+
+function renderMovingKpi(label, value, helper, tone = "soft") {
+  return `
+    <article class="move-kpi ${escapeHtml(tone)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${formatCurrency(value)}</strong>
+      <small>${escapeHtml(helper || "")}</small>
+    </article>`;
+}
+
+function movingSettlementText(net) {
+  if (Math.abs(net) < 0.5) return "Ingen mellemregning";
+  return net > 0 ? "Laura → Claes" : "Claes → Laura";
+}
+
+function movingLoanChoiceLabel(project) {
+  if (project.loanChoice === "fixed") return `Fast ${formatNumber(project.fixedRateCoupon)}%`;
+  if (project.loanChoice === "fkort") return "F-kort";
+  return "Afventer kurs";
+}
+
+function renderMovingLoanPanel(project, summary) {
+  const fixedReady = Boolean(project.fixedRateCourse && project.fixedRateCourseTarget && project.fixedRateCourse >= project.fixedRateCourseTarget);
+  const loanAmount = Number(project.loanAmount || 0);
+  return `
+    <article class="move-loan-panel panel pad">
+      <div class="section-heading clean-heading">
+        <div><h2>Lånevalg</h2><p>Fast 4% hvis kursen er god — ellers F-kort.</p></div>
+        <span class="pill ${fixedReady ? "" : "muted"}">${fixedReady ? "Fast ser stærk ud" : "Afventer kurs"}</span>
+      </div>
+      <div class="loan-routes">
+        <div class="loan-route ${project.loanChoice === "fixed" ? "active" : ""}">
+          <span>Mulighed A</span>
+          <strong>Fast ${formatNumber(project.fixedRateCoupon)}% · 10 års afdragsfrihed</strong>
+          <small>Kurs ${project.fixedRateCourse ? formatNumber(project.fixedRateCourse) : "—"} · mål ${project.fixedRateCourseTarget ? formatNumber(project.fixedRateCourseTarget) : "—"}</small>
+          <em>${loanAmount && project.fixedRateCourse ? `${formatCurrency(summary.fixedCourseLoss)} kursfradrag` : "Udfyld lånebeløb + kurs"}</em>
+        </div>
+        <div class="loan-route ${project.loanChoice === "fkort" ? "active" : ""}">
+          <span>Mulighed B</span>
+          <strong>F-kort · 10 års afdragsfrihed</strong>
+          <small>Aktuel rente ${project.fkortRate ? `${formatNumber(project.fkortRate)}%` : "—"}</small>
+          <em>Fallback hvis fast kurs ikke er attraktiv</em>
+        </div>
+      </div>
+    </article>`;
+}
+
+function renderMovingCategoryPanel(summary) {
+  const rows = summary.byCategory;
+  return `
+    <article class="move-category-panel panel pad">
+      <div class="section-heading clean-heading"><div><h2>Fordeling</h2><p>Hvor projektets penge ligger.</p></div></div>
+      <div class="move-category-list">
+        ${rows.length ? rows.map((row) => `
+          <div class="move-category-row ${escapeHtml(row.category.tone)}">
+            <span><strong>${escapeHtml(row.category.label)}</strong><small>${row.count} linje${row.count === 1 ? "" : "r"}</small></span>
+            <i><b style="--width:${Math.max(4, Math.round(row.share * 100))}%"></b></i>
+            <em>${formatCurrency(row.amount)}</em>
+          </div>`).join("") : `<div class="empty-state compact-empty"><strong>Ingen linjer endnu</strong><span>Tilføj flytning, lån eller møbler.</span></div>`}
+      </div>
+    </article>`;
+}
+
+function renderMovingAddForm() {
+  return `
+    <form class="move-add-form panel pad" id="moving-item-form">
+      <div class="section-heading clean-heading"><div><h2>Tilføj køb</h2><p>Én linje er nok: ting, pris, udlæg og link.</p></div></div>
+      <div class="move-add-grid">
+        <label class="field"><span>Ting</span><input class="input" name="name" placeholder="fx spisebord" required /></label>
+        <label class="field"><span>Pris</span><input class="input" name="price" inputmode="decimal" placeholder="12.500" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Kategori</span><select class="select" name="category">${MOVING_CATEGORIES.map((category) => option(category.id, category.label, category.id === "moebler")).join("")}</select></label>
+        <label class="field"><span>Lagt ud af</span><select class="select" name="paidBy">${MOVING_PAYERS.map((payer) => option(payer.id, payer.label, payer.id === "claes")).join("")}</select></label>
+        <label class="field"><span>Fordeling</span><select class="select" name="split">${MOVING_SPLITS.map((split) => option(split.id, split.label, split.id === "shared")).join("")}</select></label>
+        <label class="field"><span>Status</span><select class="select" name="status">${MOVING_STATUSES.map((status) => option(status.id, status.label, status.id === "bought")).join("")}</select></label>
+        <label class="field move-wide"><span>Link</span><input class="input" name="link" type="url" placeholder="https://..." /></label>
+        <label class="field move-wide"><span>Billede-URL</span><input class="input" name="imageUrl" type="url" placeholder="valgfrit" /></label>
+      </div>
+      <button class="button primary" type="submit">Tilføj til overblik</button>
+    </form>`;
+}
+
+function renderMovingSettingsForm(project) {
+  return `
+    <details class="move-settings panel pad">
+      <summary>Rammer og lån</summary>
+      <form id="moving-settings-form" class="move-settings-grid">
+        <label class="field"><span>Titel</span><input class="input" name="title" value="${escapeHtml(project.title)}" /></label>
+        <label class="field"><span>Fanenavn</span><input class="input" name="shortTitle" value="${escapeHtml(project.shortTitle)}" /></label>
+        <label class="field"><span>Fra</span><input class="input" name="currentAddress" value="${escapeHtml(project.currentAddress)}" /></label>
+        <label class="field"><span>Til</span><input class="input" name="newAddress" value="${escapeHtml(project.newAddress)}" /></label>
+        <label class="field"><span>Overtagelse</span><input class="input" type="date" name="accessDate" value="${escapeHtml(project.accessDate)}" /></label>
+        <label class="field"><span>Lån dage før</span><input class="input" inputmode="numeric" name="loanDeadlineDaysBefore" value="${escapeHtml(String(project.loanDeadlineDaysBefore))}" /></label>
+        <label class="field"><span>Lånebeløb</span><input class="input" inputmode="decimal" name="loanAmount" value="${escapeHtml(project.loanAmount ? formatAmountInput(project.loanAmount) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Fast kupon %</span><input class="input" inputmode="decimal" name="fixedRateCoupon" value="${escapeHtml(formatNumber(project.fixedRateCoupon))}" /></label>
+        <label class="field"><span>Fast kurs</span><input class="input" inputmode="decimal" name="fixedRateCourse" value="${escapeHtml(project.fixedRateCourse ? formatNumber(project.fixedRateCourse) : "")}" /></label>
+        <label class="field"><span>Kursmål</span><input class="input" inputmode="decimal" name="fixedRateCourseTarget" value="${escapeHtml(formatNumber(project.fixedRateCourseTarget))}" /></label>
+        <label class="field"><span>F-kort rente %</span><input class="input" inputmode="decimal" name="fkortRate" value="${escapeHtml(project.fkortRate ? formatNumber(project.fkortRate) : "")}" /></label>
+        <label class="field"><span>Valg</span><select class="select" name="loanChoice">${option("pending", "Afventer", project.loanChoice === "pending")}${option("fixed", "Fast 4%", project.loanChoice === "fixed")}${option("fkort", "F-kort", project.loanChoice === "fkort")}</select></label>
+        <button class="button primary move-wide" type="submit">Gem rammer</button>
+      </form>
+    </details>`;
+}
+
+function renderMovingItems(items = []) {
+  if (!items.length) {
+    return `<div class="move-empty"><strong>Ingen køb endnu</strong><span>Start med flyttemand, lånegebyrer eller den første ting til lejligheden.</span></div>`;
+  }
+  return `
+    <div class="move-items" role="table" aria-label="Køb til flytteprojekt">
+      <div class="move-items-head" role="row">
+        <span>Ting</span><span>Pris</span><span>Lagt ud</span><span>Fordeling</span><span>Status</span><span></span>
+      </div>
+      ${items.map(renderMovingItemRow).join("")}
+    </div>`;
+}
+
+function renderMovingItemRow(item) {
+  const category = movingCategoryById(item.category);
+  const image = movingItemImage(item);
+  const custom = item.split === "custom";
+  return `
+    <article class="move-item-row ${escapeHtml(category.tone)}" role="row">
+      <div class="move-item-main">
+        <div class="move-item-image">${image ? `<img src="${escapeHtml(image)}" alt="" loading="lazy" />` : `<span>${escapeHtml(category.label.slice(0, 2))}</span>`}</div>
+        <div class="move-item-copy">
+          <input class="move-line-input strong" data-moving-item="${escapeHtml(item.id)}" data-moving-field="name" value="${escapeHtml(item.name)}" />
+          <div class="move-line-meta">
+            <select class="move-mini-select" data-moving-item="${escapeHtml(item.id)}" data-moving-field="category">${MOVING_CATEGORIES.map((cat) => option(cat.id, cat.label, cat.id === item.category)).join("")}</select>
+            <input class="move-line-input" data-moving-item="${escapeHtml(item.id)}" data-moving-field="link" value="${escapeHtml(item.link)}" placeholder="Link" />
+            ${item.link ? `<a href="${escapeHtml(item.link)}" target="_blank" rel="noreferrer">Åbn</a>` : ""}
+          </div>
+          <input class="move-line-input muted" data-moving-item="${escapeHtml(item.id)}" data-moving-field="imageUrl" value="${escapeHtml(item.imageUrl)}" placeholder="Billede-URL" />
+          ${custom ? `<div class="move-custom-split"><label>Claes %<input class="input" inputmode="decimal" data-moving-item="${escapeHtml(item.id)}" data-moving-field="claesSharePct" value="${escapeHtml(formatNumber(item.claesSharePct))}" /></label><label>Laura %<input class="input" inputmode="decimal" data-moving-item="${escapeHtml(item.id)}" data-moving-field="lauraSharePct" value="${escapeHtml(formatNumber(item.lauraSharePct))}" /></label></div>` : ""}
+        </div>
+      </div>
+      <div class="move-item-price"><input class="input" inputmode="decimal" data-moving-item="${escapeHtml(item.id)}" data-moving-field="price" value="${escapeHtml(item.price ? formatAmountInput(item.price) : "")}" ${privacyInputAttrs()} /><small>${formatCurrency(item.price)}</small></div>
+      <select class="select" data-moving-item="${escapeHtml(item.id)}" data-moving-field="paidBy">${MOVING_PAYERS.map((payer) => option(payer.id, payer.label, payer.id === item.paidBy)).join("")}</select>
+      <select class="select" data-moving-item="${escapeHtml(item.id)}" data-moving-field="split">${MOVING_SPLITS.map((split) => option(split.id, split.label, split.id === item.split)).join("")}</select>
+      <select class="select" data-moving-item="${escapeHtml(item.id)}" data-moving-field="status">${MOVING_STATUSES.map((status) => option(status.id, status.label, status.id === item.status)).join("")}</select>
+      <button class="icon-button" type="button" data-action="delete-moving-item" data-id="${escapeHtml(item.id)}">Slet</button>
+    </article>`;
+}
+
+function movingItemImage(item) {
+  const explicit = String(item.imageUrl || "").trim();
+  if (explicit) return explicit;
+  const link = String(item.link || "").trim();
+  return /\.(png|jpe?g|webp|gif|avif|svg)(\?.*)?$/i.test(link) ? link : "";
+}
+
+function updateMovingItemField(id, field, value) {
+  const project = getMovingProject();
+  const item = project.items.find((row) => row.id === id);
+  if (!item) return false;
+  if (field === "price") {
+    const amount = parseAmount(value);
+    if (!Number.isFinite(amount)) return false;
+    item.price = Math.max(0, amount);
+  } else if (field === "claesSharePct" || field === "lauraSharePct") {
+    const amount = parseAmount(value);
+    if (!Number.isFinite(amount)) return false;
+    item[field] = clampPercent(amount);
+  } else if (field === "category" && MOVING_CATEGORIES.some((category) => category.id === value)) {
+    item.category = value;
+  } else if (field === "paidBy" && MOVING_PAYERS.some((payer) => payer.id === value)) {
+    item.paidBy = value;
+  } else if (field === "split" && MOVING_SPLITS.some((split) => split.id === value)) {
+    item.split = value;
+  } else if (field === "status" && MOVING_STATUSES.some((status) => status.id === value)) {
+    item.status = value;
+  } else if (["name", "link", "imageUrl", "note"].includes(field)) {
+    item[field] = String(value || "").trim();
+  } else {
+    return false;
+  }
+  item.updatedAt = new Date().toISOString();
+  return true;
+}
+
+function addMovingItemFromForm(form) {
+  const data = new FormData(form);
+  const price = parseAmount(data.get("price"));
+  const item = normalizeMovingItem({
+    id: uid("move"),
+    name: String(data.get("name") || "").trim(),
+    category: String(data.get("category") || "andet"),
+    price: Number.isFinite(price) ? price : 0,
+    paidBy: String(data.get("paidBy") || "claes"),
+    split: String(data.get("split") || "shared"),
+    status: String(data.get("status") || "bought"),
+    link: String(data.get("link") || "").trim(),
+    imageUrl: String(data.get("imageUrl") || "").trim(),
+    createdAt: new Date().toISOString(),
+  });
+  if (!item?.name) return false;
+  const project = getMovingProject();
+  project.items.unshift(item);
+  return true;
+}
+
+function updateMovingSettingsFromForm(form) {
+  const data = new FormData(form);
+  const project = getMovingProject();
+  project.title = String(data.get("title") || project.title).trim() || "Ny lejlighed";
+  project.shortTitle = String(data.get("shortTitle") || project.title).trim() || project.title;
+  project.currentAddress = String(data.get("currentAddress") || "").trim();
+  project.newAddress = String(data.get("newAddress") || "").trim();
+  const accessDate = String(data.get("accessDate") || "");
+  if (isIsoDate(accessDate)) project.accessDate = accessDate;
+  project.loanDeadlineDaysBefore = Math.max(0, Number(data.get("loanDeadlineDaysBefore") || 0) || 0);
+  const loanAmount = parseAmount(data.get("loanAmount"));
+  if (Number.isFinite(loanAmount)) project.loanAmount = Math.max(0, loanAmount);
+  const fixedRateCoupon = parseAmount(data.get("fixedRateCoupon"));
+  if (Number.isFinite(fixedRateCoupon)) project.fixedRateCoupon = Math.max(0, fixedRateCoupon);
+  const fixedRateCourse = parseAmount(data.get("fixedRateCourse"));
+  project.fixedRateCourse = Number.isFinite(fixedRateCourse) ? Math.max(0, fixedRateCourse) : 0;
+  const fixedRateCourseTarget = parseAmount(data.get("fixedRateCourseTarget"));
+  if (Number.isFinite(fixedRateCourseTarget)) project.fixedRateCourseTarget = Math.max(0, fixedRateCourseTarget);
+  const fkortRate = parseAmount(data.get("fkortRate"));
+  project.fkortRate = Number.isFinite(fkortRate) ? Math.max(0, fkortRate) : 0;
+  const loanChoice = String(data.get("loanChoice") || "pending");
+  project.loanChoice = ["pending", "fixed", "fkort"].includes(loanChoice) ? loanChoice : "pending";
+  return true;
+}
+
 
 function renderReportsView() {
   const modes = [
@@ -4107,6 +4568,19 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "delete-moving-item") {
+    const project = getMovingProject();
+    const item = project.items.find((row) => row.id === id);
+    if (!item) return;
+    if (confirm(`Slet “${item.name}” fra flytteoverblikket?`)) {
+      project.items = project.items.filter((row) => row.id !== id);
+      saveState();
+      render();
+      notify("Linjen blev slettet fra flytteprojektet.");
+    }
+    return;
+  }
+
   if (action === "undo-last-bulk") {
     if (!ui.undo?.stateJson) {
       notify("Der er ingen bulk-handling at fortryde.", "danger");
@@ -4575,6 +5049,28 @@ async function handleClick(event) {
 
 async function handleSubmit(event) {
   const formId = event.target?.getAttribute?.("id") || "";
+  if (formId === "moving-item-form") {
+    event.preventDefault();
+    if (!addMovingItemFromForm(event.target)) {
+      notify("Tilføj både navn og en pris, så linjen kan bruges i overblikket.", "danger");
+      return;
+    }
+    event.target.reset();
+    saveState();
+    render();
+    notify("Købet blev tilføjet til flytteprojektet.");
+    return;
+  }
+
+  if (formId === "moving-settings-form") {
+    event.preventDefault();
+    updateMovingSettingsFromForm(event.target);
+    saveState();
+    render();
+    notify("Rammer og lånefelter blev gemt.");
+    return;
+  }
+
   if (formId === "eb-setup-form") {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -4727,6 +5223,19 @@ async function handleSubmit(event) {
 
 function handleChange(event) {
   const target = event.target;
+
+  if (target.dataset.movingItem && target.dataset.movingField) {
+    const changed = updateMovingItemField(target.dataset.movingItem, target.dataset.movingField, target.value);
+    if (!changed) {
+      notify("Flyttelinjen kunne ikke opdateres. Tjek beløbet eller feltet.", "danger");
+      render();
+      return;
+    }
+    saveState();
+    render();
+    notify("Flytteoverblikket blev opdateret.");
+    return;
+  }
 
   if (target.id === "period-mode") {
     ui.transactionsPage = 1;
@@ -4931,6 +5440,11 @@ function handleChange(event) {
 }
 
 function handleInput(event) {
+  if (event.target.dataset.movingItem && event.target.dataset.movingField && ["name", "link", "imageUrl", "note"].includes(event.target.dataset.movingField)) {
+    if (updateMovingItemField(event.target.dataset.movingItem, event.target.dataset.movingField, event.target.value)) saveStateQuietly();
+    return;
+  }
+
   if (event.target.id === "wealth-pension-provider") {
     const wealth = getWealthSettings();
     wealth.pension.provider = event.target.value.trim() || "Pension";
@@ -7142,15 +7656,21 @@ function uiMonthEnd(monthKey) {
 }
 
 function shiftDate(isoDate, offsetDays) {
-  const date = new Date(`${isoDate}T00:00:00`);
+  const [year, month, day] = String(isoDate || todayISO()).split("-").map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
   date.setDate(date.getDate() + Number(offsetDays || 0));
-  return date.toISOString().slice(0, 10);
+  return localIsoDate(date);
 }
 
 function shiftDateByYears(isoDate, offsetYears) {
-  const date = new Date(`${isoDate}T00:00:00`);
+  const [year, month, day] = String(isoDate || todayISO()).split("-").map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
   date.setFullYear(date.getFullYear() + Number(offsetYears || 0));
-  return date.toISOString().slice(0, 10);
+  return localIsoDate(date);
+}
+
+function localIsoDate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function formatDateTime(value) {
