@@ -58,6 +58,13 @@ const TOTALKREDIT_LINKS = [
   { label: "Dagens kurser", url: "https://www.totalkredit.dk/boliglan/kurser-og-priser/" },
 ];
 
+const DEFAULT_MOVING_ADVISOR_NOTES = `Mette-noter:
+- Overtagelse 1. juli.
+- Nyt realkreditlån skal hjemtages senest 14 dage før overtagelse.
+- Følg fast 4% med op til 10 års afdragsfrihed tæt frem mod deadline.
+- Hvis fast kurs er attraktiv tæt på deadline, vælges fast. Ellers er F-kort fallback.
+- Sammenlign altid med bankens konkrete lånetilbud og bidragssats, før der besluttes.`;
+
 const DEFAULT_MOVING_PROJECT = {
   title: "Ny lejlighed",
   shortTitle: "Ny lejlighed",
@@ -71,6 +78,9 @@ const DEFAULT_MOVING_PROJECT = {
   fixedRateCourse: 0,
   fixedRateCourseTarget: 0,
   fkortRate: 0,
+  latestRates: null,
+  rateHistory: [],
+  advisorNotes: DEFAULT_MOVING_ADVISOR_NOTES,
   items: [],
 };
 
@@ -1720,6 +1730,9 @@ function normalizeMovingProject(project = {}) {
     fixedRateCourse: Math.max(0, Number(source.fixedRateCourse || 0) || 0),
     fixedRateCourseTarget: Math.max(0, Number(source.fixedRateCourseTarget || DEFAULT_MOVING_PROJECT.fixedRateCourseTarget) || 0),
     fkortRate: Math.max(0, Number(source.fkortRate || 0) || 0),
+    latestRates: source.latestRates || null,
+    rateHistory: Array.isArray(source.rateHistory) ? source.rateHistory.slice(0, 80) : [],
+    advisorNotes: String(source.advisorNotes || DEFAULT_MOVING_ADVISOR_NOTES),
     items: Array.isArray(source.items) ? source.items.map(normalizeMovingItem).filter(Boolean) : [],
   };
 }
@@ -1906,10 +1919,68 @@ function renderMovingLoanPanel(project, summary) {
           <em>Fallback hvis fast kurs ikke er attraktiv</em>
         </div>
       </div>
+      ${renderTotalkreditRateTracker(project, summary)}
       <div class="totalkredit-links" aria-label="Totalkredit links">
         ${TOTALKREDIT_LINKS.map((link) => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label)}</a>`).join("")}
       </div>
+      ${renderMovingAdvisorNotes(project)}
     </article>`;
+}
+
+function renderTotalkreditRateTracker(project, summary) {
+  const rates = project.latestRates || null;
+  const fixed = rates?.fixed4InterestOnly || null;
+  const fkort = rates?.fkort || null;
+  const fixedCourse = fixed?.priceRate ?? project.fixedRateCourse;
+  const fkortRate = fkort?.currentRate ?? project.fkortRate;
+  const target = Number(project.fixedRateCourseTarget || 0);
+  const fixedDelta = target && fixedCourse ? fixedCourse - target : null;
+  const verdict = fixedDelta == null ? "Sæt kursmål for signal" : fixedDelta >= 0 ? `Over mål med ${formatNumber(fixedDelta)}` : `Under mål med ${formatNumber(Math.abs(fixedDelta))}`;
+  return `
+    <div class="tk-rate-tracker">
+      <div class="tk-rate-head">
+        <div><span>Live fra Totalkredit</span><strong>Fast 4% vs. F-kort</strong><small>${rates?.fetchedAt ? `Hentet ${formatDateTime(rates.fetchedAt)}` : "Ikke hentet endnu"}</small></div>
+        <button class="button ghost" type="button" data-action="refresh-totalkredit-rates">Opdater kurser</button>
+      </div>
+      <div class="tk-rate-grid">
+        <div class="tk-rate-card ${fixedDelta != null && fixedDelta >= 0 ? "positive" : ""}">
+          <span>Fast 4% · 10 års afdragsfrihed</span>
+          <strong>${fixedCourse ? formatNumber(fixedCourse) : "—"}</strong>
+          <small>Kurs · ${fixed?.effectiveRateLabel ? `effektiv ${escapeHtml(fixed.effectiveRateLabel)}` : "effektiv rente —"}</small>
+          <em>${escapeHtml(verdict)}</em>
+        </div>
+        <div class="tk-rate-card">
+          <span>F-kort</span>
+          <strong>${fkortRate ? `${formatNumber(fkortRate)}%` : "—"}</strong>
+          <small>${fkort?.expectedRateLabel ? `forventet ${escapeHtml(fkort.expectedRateLabel)}` : "forventet rente —"}${fkort?.priceRate ? ` · kurs ${formatNumber(fkort.priceRate)}` : ""}</small>
+          <em>${fkort?.refinancingDate ? `Refinansiering ${escapeHtml(fkort.refinancingDate)}` : "Variabel rente"}</em>
+        </div>
+      </div>
+      ${renderTotalkreditHistory(project.rateHistory || [])}
+      <p class="tk-rate-disclaimer">${escapeHtml(rates?.disclaimer || "Totalkredit-kurser er vejledende og ikke et lånetilbud. Beslutning skal holdes op mod bankens konkrete tilbud og bidragssats.")}</p>
+    </div>`;
+}
+
+function renderTotalkreditHistory(history = []) {
+  const rows = history.slice(0, 6);
+  if (!rows.length) return "";
+  return `
+    <div class="tk-rate-history">
+      ${rows.map((row) => `
+        <div>
+          <span>${escapeHtml(formatDateTime(row.at))}</span>
+          <strong>${row.fixedPriceRate ? formatNumber(row.fixedPriceRate) : "—"}</strong>
+          <em>${row.fkortCurrentRate ? `${formatNumber(row.fkortCurrentRate)}%` : "—"}</em>
+        </div>`).join("")}
+    </div>`;
+}
+
+function renderMovingAdvisorNotes(project) {
+  return `
+    <details class="move-advisor-notes" open>
+      <summary>Mette-noter</summary>
+      <textarea class="input" data-moving-project-field="advisorNotes" rows="6">${escapeHtml(project.advisorNotes || DEFAULT_MOVING_ADVISOR_NOTES)}</textarea>
+    </details>`;
 }
 
 function renderMovingCategoryPanel(summary) {
@@ -2026,6 +2097,50 @@ function looksLikeUrl(value) {
     return false;
   }
 }
+
+
+async function refreshTotalkreditRates({ silent = false, force = true } = {}) {
+  const project = getMovingProject();
+  const latestAt = new Date(project.latestRates?.fetchedAt || 0).getTime();
+  if (!force && latestAt && Date.now() - latestAt < 30 * 60 * 1000) return;
+  try {
+    if (!silent) notify("Henter Totalkredit-kurser …");
+    const rates = await apiFetch("/api/totalkredit/rates");
+    applyTotalkreditRates(rates);
+    saveState();
+    render();
+    if (!silent) notify("Totalkredit-kurserne er opdateret.");
+  } catch (error) {
+    console.warn("Kunne ikke hente Totalkredit-kurser", error);
+    if (!silent) notify(`Kunne ikke hente Totalkredit-kurser: ${error.message}`, "danger");
+  }
+}
+
+function applyTotalkreditRates(rates) {
+  const project = getMovingProject();
+  project.latestRates = rates;
+  const fixed = rates?.fixed4InterestOnly || null;
+  const fkort = rates?.fkort || null;
+  if (fixed?.priceRate) project.fixedRateCourse = Number(fixed.priceRate);
+  if (fkort?.currentRate || fkort?.expectedRate) project.fkortRate = Number(fkort.currentRate || fkort.expectedRate || 0);
+  const snapshot = {
+    at: rates?.fetchedAt || new Date().toISOString(),
+    fixedUpdatedAt: rates?.fixedUpdatedAt || "",
+    variableUpdatedAt: rates?.variableUpdatedAt || "",
+    fixedName: fixed?.name || "",
+    fixedPriceRate: fixed?.priceRate || null,
+    fixedSpotPriceRate: fixed?.spotPriceRatePayment || null,
+    fixedEffectiveRate: fixed?.effectiveRate || null,
+    fkortName: fkort?.name || "",
+    fkortPriceRate: fkort?.priceRate || null,
+    fkortCurrentRate: fkort?.currentRate || null,
+    fkortExpectedRate: fkort?.expectedRate || null,
+  };
+  const key = `${snapshot.fixedUpdatedAt}|${snapshot.variableUpdatedAt}|${snapshot.fixedPriceRate}|${snapshot.fkortCurrentRate}`;
+  const existing = (project.rateHistory || []).filter((row) => `${row.fixedUpdatedAt}|${row.variableUpdatedAt}|${row.fixedPriceRate}|${row.fkortCurrentRate}` !== key);
+  project.rateHistory = [snapshot, ...existing].slice(0, 80);
+}
+
 
 async function fetchLinkPreview(url) {
   if (!looksLikeUrl(url)) throw new Error("Indsæt et gyldigt http/https-link først.");
@@ -4628,6 +4743,7 @@ async function handleClick(event) {
     ui.drawerTxId = null;
     render();
     if (ui.view === "bank-sync") window.setTimeout(() => hydrateEnableBankingFromServer(false), 80);
+    if (ui.view === "ny-lejlighed") window.setTimeout(() => refreshTotalkreditRates({ silent: true, force: false }), 120);
     return;
   }
 
@@ -4637,6 +4753,11 @@ async function handleClick(event) {
   const id = button.dataset.id;
 
   if (action === "noop") {
+    return;
+  }
+
+  if (action === "refresh-totalkredit-rates") {
+    await refreshTotalkreditRates({ silent: false, force: true });
     return;
   }
 
@@ -5527,6 +5648,13 @@ function handleChange(event) {
 }
 
 function handleInput(event) {
+  if (event.target.dataset.movingProjectField === "advisorNotes") {
+    const project = getMovingProject();
+    project.advisorNotes = event.target.value;
+    saveStateQuietly();
+    return;
+  }
+
   if (event.target.dataset.movingItem && event.target.dataset.movingField && ["name", "link", "imageUrl", "note"].includes(event.target.dataset.movingField)) {
     if (updateMovingItemField(event.target.dataset.movingItem, event.target.dataset.movingField, event.target.value)) saveStateQuietly();
     return;

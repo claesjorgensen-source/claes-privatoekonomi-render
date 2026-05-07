@@ -3425,6 +3425,126 @@ button.list-row,
   font-style: normal;
 }
 
+.tk-rate-tracker {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  padding: 16px;
+  background: rgba(255, 250, 241, 0.72);
+}
+
+.tk-rate-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.tk-rate-head span,
+.tk-rate-card span {
+  display: block;
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tk-rate-head strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 1.16rem;
+  letter-spacing: -0.04em;
+}
+
+.tk-rate-head small,
+.tk-rate-card small,
+.tk-rate-card em,
+.tk-rate-disclaimer {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.tk-rate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tk-rate-card {
+  border-radius: 22px;
+  padding: 16px;
+  background: #ffffffa8;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 7px;
+}
+
+.tk-rate-card.positive {
+  background: #eaf5de;
+  border-color: rgba(0, 122, 83, 0.26);
+}
+
+.tk-rate-card strong {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.08em;
+}
+
+.tk-rate-card em {
+  font-style: normal;
+  font-weight: 800;
+}
+
+.tk-rate-history {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.tk-rate-history div {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 90px 90px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.tk-rate-history strong,
+.tk-rate-history em {
+  color: var(--ink);
+  font-style: normal;
+  font-weight: 900;
+  text-align: right;
+}
+
+.tk-rate-disclaimer {
+  margin: 12px 0 0;
+  line-height: 1.45;
+}
+
+.move-advisor-notes {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.move-advisor-notes summary {
+  cursor: pointer;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.move-advisor-notes textarea {
+  margin-top: 10px;
+  min-height: 132px;
+  resize: vertical;
+}
+
 .totalkredit-links,
 .move-form-actions {
   display: flex;
@@ -3876,9 +3996,20 @@ button.list-row,
   }
 
   .move-form-actions,
-  .totalkredit-links {
+  .totalkredit-links,
+  .tk-rate-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .tk-rate-grid,
+  .tk-rate-history div {
+    grid-template-columns: 1fr;
+  }
+
+  .tk-rate-history strong,
+  .tk-rate-history em {
+    text-align: left;
   }
 
   .finance-cockpit,

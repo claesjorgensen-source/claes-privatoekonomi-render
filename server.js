@@ -21,6 +21,10 @@ const EB_CERT_FILE = path.join(DATA_DIR, "enablebanking-public.crt");
 const GC_BASE_URL = "https://bankaccountdata.gocardless.com/api/v2";
 const EB_BASE_URL = "https://api.enablebanking.com";
 const LINK_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
+const TOTALKREDIT_BOND_TABLES = {
+  fixed: "privat-udbetaling-af-laan-aktuelle-kurser-kunder",
+  variable: "privat-udbetaling-af-variabel-laan-aktuelle-kurser-kunder",
+};
 
 loadEnvFile(path.join(__dirname, ".env"));
 
@@ -433,6 +437,11 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/link-preview") {
     sendJson(res, 200, await fetchLinkPreview(url.searchParams.get("url") || ""));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/totalkredit/rates") {
+    sendJson(res, 200, await fetchTotalkreditRates());
     return;
   }
 
@@ -1353,6 +1362,98 @@ function loadEnvFile(filePath) {
     value = value.replace(/^['\"]|['\"]$/g, "");
     if (!(key in process.env)) process.env[key] = value;
   }
+}
+
+
+
+let totalkreditRatesCache = { at: 0, data: null };
+
+async function fetchTotalkreditRates() {
+  if (totalkreditRatesCache.data && Date.now() - totalkreditRatesCache.at < 10 * 60 * 1000) return totalkreditRatesCache.data;
+  const [fixedTable, variableTable] = await Promise.all([
+    fetchTotalkreditBondTable(TOTALKREDIT_BOND_TABLES.fixed),
+    fetchTotalkreditBondTable(TOTALKREDIT_BOND_TABLES.variable),
+  ]);
+  const fixedEntries = flattenTotalkreditEntries(fixedTable);
+  const variableEntries = flattenTotalkreditEntries(variableTable);
+  const fixedAlternatives = fixedEntries
+    .filter((entry) => /(^|\s)4%/.test(entry.name || "") && /10\s*års\s*afdragsfrihed/i.test(entry.name || ""))
+    .map(normalizeTotalkreditEntry)
+    .sort((a, b) => Number(b.priceRate || 0) - Number(a.priceRate || 0));
+  const fixed4InterestOnly = fixedAlternatives.find((entry) => entry.isOpenForOffer) || fixedAlternatives[0] || null;
+  const fkortEntry = variableEntries.find((entry) => /f-?kort|aktuel rente/i.test(`${entry.groupName || ""} ${entry.name || ""}`)) || variableEntries[0] || null;
+  const result = {
+    ok: true,
+    provider: "Totalkredit",
+    fetchedAt: new Date().toISOString(),
+    sourceUrl: "https://www.totalkredit.dk/boliglan/kurser-og-priser/",
+    disclaimer: fixedTable.disclaimer || variableTable.disclaimer || "Kurser er vejledende og ikke et tilbud.",
+    fixedUpdatedAt: fixedTable.lastUpdatedTimestamp || "",
+    variableUpdatedAt: variableTable.lastUpdatedTimestamp || "",
+    nextUpdateAt: fixedTable.nextUpdateTimestamp || variableTable.nextUpdateTimestamp || "",
+    fixed4InterestOnly,
+    fixedAlternatives,
+    fkort: fkortEntry ? normalizeTotalkreditEntry(fkortEntry) : null,
+  };
+  totalkreditRatesCache = { at: Date.now(), data: result };
+  return result;
+}
+
+async function fetchTotalkreditBondTable(tableId) {
+  const url = `https://www.totalkredit.dk/api/bondinformation/table?tableId=${encodeURIComponent(tableId)}`;
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      Referer: "https://www.totalkredit.dk/boliglan/kurser-og-priser/",
+      "User-Agent": "ClaesPrivatoekonomiTotalkreditRates/1.0 (+private household app)",
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Totalkredit ${response.status}: ${text.slice(0, 160)}`);
+  return text ? JSON.parse(text) : {};
+}
+
+function flattenTotalkreditEntries(table = {}) {
+  return (table.groups || []).flatMap((group) => (group.entries || []).map((entry) => ({ ...entry, groupName: group.name || "" })));
+}
+
+function normalizeTotalkreditEntry(entry = {}) {
+  const name = String(entry.name || "");
+  const currentRate = parseTotalkreditPercent(name.match(/Aktuel rente\s*([\d,.]+)\s*%/i)?.[1]);
+  const refinancingDate = name.match(/refinansiering\s*([\d-]+)/i)?.[1] || "";
+  return {
+    name,
+    groupName: entry.groupName || "",
+    lifetime: entry.lifetime || "",
+    fondCode: entry.fondCode || "",
+    isOpenForOffer: Boolean(entry.isOpenForOffer),
+    openForOffer: entry.openForOffer || (entry.isOpenForOffer ? "Åben" : "Lukket"),
+    priceRate: parseTotalkreditNumber(entry.priceRate),
+    priceRateLabel: entry.priceRate || "",
+    spotPriceRatePayment: parseTotalkreditNumber(entry.spotPriceRatePayment),
+    spotPriceRatePaymentLabel: entry.spotPriceRatePayment || "",
+    effectiveRate: parseTotalkreditPercent(entry.effectiveRate),
+    effectiveRateLabel: entry.effectiveRate || "",
+    interestMarginRate: parseTotalkreditPercent(entry.interestMarginRate),
+    interestMarginRateLabel: entry.interestMarginRate || "",
+    expectedRate: parseTotalkreditPercent(entry.expectedRate),
+    expectedRateLabel: entry.expectedRate || "",
+    currentRate,
+    currentRateLabel: Number.isFinite(currentRate) ? `${String(name.match(/Aktuel rente\s*([\d,.]+)\s*%/i)?.[1] || "").replace(".", ",")} %` : "",
+    refinancingDate,
+    nasdaqUrl: entry.nasdaqUrl || "",
+  };
+}
+
+function parseTotalkreditNumber(value) {
+  const text = String(value || "").replace(/\s/g, "").replace(/%/g, "").replace(".", "").replace(",", ".");
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseTotalkreditPercent(value) {
+  const number = parseTotalkreditNumber(value);
+  return number == null ? null : number;
 }
 
 
