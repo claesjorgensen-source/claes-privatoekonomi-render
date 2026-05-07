@@ -21,7 +21,7 @@ const EB_CERT_FILE = path.join(DATA_DIR, "enablebanking-public.crt");
 const GC_BASE_URL = "https://bankaccountdata.gocardless.com/api/v2";
 const EB_BASE_URL = "https://api.enablebanking.com";
 const LINK_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
-const RECEIPT_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
+const RECEIPT_PREVIEW_MAX_BYTES = 16 * 1024 * 1024;
 const TOTALKREDIT_BOND_TABLES = {
   fixed: "privat-udbetaling-af-laan-aktuelle-kurser-kunder",
   variable: "privat-udbetaling-af-variabel-laan-aktuelle-kurser-kunder",

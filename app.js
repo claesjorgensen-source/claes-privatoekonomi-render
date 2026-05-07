@@ -84,7 +84,7 @@ const DEFAULT_MOVING_PROJECT = {
   items: [],
 };
 
-const RECEIPT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const RECEIPT_MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
 const RECEIPT_MAX_STORED_CHARS = 2_800_000;
 const RECEIPT_IMAGE_MAX_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.78;
@@ -2313,7 +2313,7 @@ async function previewReceiptWithServer(receipt) {
       body: {
         name: receipt.name,
         type: receipt.type,
-        dataUrl: receipt.dataUrl,
+        dataUrl: receipt.ocrDataUrl || receipt.dataUrl,
         text: receipt.text,
       },
     });
@@ -2350,23 +2350,25 @@ function setMovingFormDraftFromDraft(draft = {}, updates = {}) {
 }
 
 async function readMovingReceiptFile(file) {
-  if (file.size > RECEIPT_MAX_UPLOAD_BYTES) throw new Error("Filen er for stor. Brug helst et billede/PDF under 8 MB.");
+  if (file.size > RECEIPT_MAX_UPLOAD_BYTES) throw new Error("Filen er for stor. Brug helst et billede/PDF under 16 MB.");
   const text = await extractReceiptText(file).catch(() => "");
   const imageLike = isReceiptImageFile(file);
   let dataUrl = "";
+  let ocrDataUrl = "";
   let type = file.type || guessReceiptType(file.name);
   if (imageLike) {
+    ocrDataUrl = await readFileAsDataUrl(file);
     try {
       dataUrl = await compressReceiptImage(file);
       type = "image/jpeg";
     } catch {
-      dataUrl = await readFileAsDataUrl(file);
+      dataUrl = ocrDataUrl;
     }
   } else {
     dataUrl = await readFileAsDataUrl(file);
   }
   if (dataUrl.length > RECEIPT_MAX_STORED_CHARS) throw new Error("Kvitteringen er for stor efter komprimering. Tag et mindre screenshot eller gem som JPEG.");
-  return normalizeMovingReceipt({
+  const receipt = normalizeMovingReceipt({
     name: file.name || "kvittering",
     type,
     size: file.size,
@@ -2374,6 +2376,8 @@ async function readMovingReceiptFile(file) {
     text,
     uploadedAt: new Date().toISOString(),
   });
+  if (ocrDataUrl && ocrDataUrl !== dataUrl) receipt.ocrDataUrl = ocrDataUrl;
+  return receipt;
 }
 
 function isReceiptImageFile(file) {
