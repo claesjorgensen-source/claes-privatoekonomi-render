@@ -1338,8 +1338,9 @@ async function serveStatic(req, res, url) {
     res.end();
     return;
   }
-  const filePath = path.normalize(path.join(__dirname, pathname));
-  if (!filePath.startsWith(__dirname)) {
+  const vendorPath = vendorStaticPath(pathname);
+  const filePath = vendorPath || path.normalize(path.join(__dirname, pathname));
+  if (!vendorPath && !filePath.startsWith(__dirname)) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -1353,6 +1354,12 @@ async function serveStatic(req, res, url) {
   });
   if (req.method !== "HEAD") res.end(content);
   else res.end();
+}
+
+function vendorStaticPath(pathname) {
+  if (pathname === "/vendor/pdfjs/pdf.mjs") return path.join(__dirname, "node_modules", "pdfjs-dist", "legacy", "build", "pdf.mjs");
+  if (pathname === "/vendor/pdfjs/pdf.worker.mjs") return path.join(__dirname, "node_modules", "pdfjs-dist", "legacy", "build", "pdf.worker.mjs");
+  return "";
 }
 
 function loadEnvFile(filePath) {
@@ -2079,6 +2086,7 @@ function mimeType(filePath) {
   return {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".webmanifest": "application/manifest+json; charset=utf-8",

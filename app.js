@@ -1779,6 +1779,7 @@ function normalizeMovingReceipt(receipt = null) {
     type: String(receipt.type || "application/octet-stream"),
     size: Number(receipt.size || 0) || 0,
     dataUrl: String(receipt.dataUrl || ""),
+    previewImageUrl: String(receipt.previewImageUrl || receipt.pdfImageDataUrl || ""),
     text: String(receipt.text || "").slice(0, 20000),
     uploadedAt: receipt.uploadedAt || new Date().toISOString(),
   };
@@ -2125,7 +2126,9 @@ function movingItemImage(item) {
 }
 
 function movingReceiptImage(receipt) {
-  if (!receipt?.dataUrl) return "";
+  if (!receipt) return "";
+  if (receipt.previewImageUrl && /^data:image\//i.test(receipt.previewImageUrl)) return receipt.previewImageUrl;
+  if (!receipt.dataUrl) return "";
   if (/^data:image\/(png|jpe?g|webp|gif|avif|svg\+xml);/i.test(receipt.dataUrl)) return receipt.dataUrl;
   return receiptDocumentImage(receipt);
 }
@@ -2354,8 +2357,10 @@ async function readMovingReceiptFile(file) {
   if (file.size > RECEIPT_MAX_UPLOAD_BYTES) throw new Error("Filen er for stor. Brug helst et billede/PDF under 16 MB.");
   const text = await extractReceiptText(file).catch(() => "");
   const imageLike = isReceiptImageFile(file);
+  const pdfLike = isReceiptPdfFile(file);
   let dataUrl = "";
   let ocrDataUrl = "";
+  let previewImageUrl = "";
   let type = file.type || guessReceiptType(file.name);
   if (imageLike) {
     ocrDataUrl = await readFileAsDataUrl(file);
@@ -2367,6 +2372,10 @@ async function readMovingReceiptFile(file) {
     }
   } else {
     dataUrl = await readFileAsDataUrl(file);
+    if (pdfLike) {
+      previewImageUrl = await renderPdfReceiptPreview(file).catch(() => "");
+      if (!text && previewImageUrl) ocrDataUrl = previewImageUrl;
+    }
   }
   if (dataUrl.length > RECEIPT_MAX_STORED_CHARS) throw new Error("Kvitteringen er for stor efter komprimering. Tag et mindre screenshot eller gem som JPEG.");
   const receipt = normalizeMovingReceipt({
@@ -2377,12 +2386,38 @@ async function readMovingReceiptFile(file) {
     text,
     uploadedAt: new Date().toISOString(),
   });
+  if (previewImageUrl) receipt.previewImageUrl = previewImageUrl;
   if (ocrDataUrl && ocrDataUrl !== dataUrl) receipt.ocrDataUrl = ocrDataUrl;
   return receipt;
 }
 
+function isReceiptPdfFile(file) {
+  return String(file.type || "") === "application/pdf" || /\.pdf$/i.test(String(file.name || ""));
+}
+
 function isReceiptImageFile(file) {
   return String(file.type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(String(file.name || ""));
+}
+
+async function renderPdfReceiptPreview(file) {
+  const pdfjs = await import("/vendor/pdfjs/pdf.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.mjs";
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const task = pdfjs.getDocument({ data: bytes, disableFontFace: true, isEvalSupported: false });
+  const pdfDocument = await task.promise;
+  const page = await pdfDocument.getPage(1);
+  const baseViewport = page.getViewport({ scale: 1 });
+  const scale = Math.min(2.4, Math.max(1.2, 1400 / Math.max(baseViewport.width || 1, baseViewport.height || 1)));
+  const viewport = page.getViewport({ scale });
+  const canvas = window.document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const context = canvas.getContext("2d", { alpha: false });
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: context, viewport }).promise;
+  await pdfDocument.destroy?.();
+  return canvas.toDataURL("image/jpeg", 0.82);
 }
 
 async function extractReceiptText(file) {
