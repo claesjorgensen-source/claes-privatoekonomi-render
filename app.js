@@ -1889,6 +1889,8 @@ function renderMovingProjectView() {
       </div>
     </section>
 
+    ${renderMovingInsightsPanel(project, summary)}
+
     <section class="move-ledger section panel pad">
       <div class="section-heading clean-heading">
         <div><h2>Køb og udlæg</h2><p>Billede, link, pris, hvem der lagde ud — og om det skal deles.</p></div>
@@ -2020,6 +2022,216 @@ function renderMovingCategoryPanel(summary) {
           </div>`).join("") : `<div class="empty-state compact-empty"><strong>Ingen linjer endnu</strong><span>Tilføj flytning, lån eller møbler.</span></div>`}
       </div>
     </article>`;
+}
+
+function renderMovingInsightsPanel(project, summary) {
+  const insight = getMovingInsightData(project, summary);
+  if (!insight.itemCount) {
+    return `
+      <section class="move-insights section panel pad">
+        <div class="section-heading clean-heading"><div><h2>Indsigter</h2><p>Når der kommer køb på, viser appen hvor pengene går hen, hvem der har lagt ud, og hvad der mangler.</p></div></div>
+        <div class="empty-state compact-empty"><strong>Ingen indsigter endnu</strong><span>Tilføj de første køb eller planlagte poster til Solvej 4.</span></div>
+      </section>`;
+  }
+  return `
+    <section class="move-insights section panel pad" aria-label="Indsigter for Solvej 4">
+      <div class="section-heading clean-heading">
+        <div><h2>Indsigter</h2><p>Hvad pengene går til — og hvad der stadig mangler før afregning.</p></div>
+        <span class="pill muted">${escapeHtml(insight.daysToAccessText)}</span>
+      </div>
+      <div class="move-insight-hero-grid">
+        ${renderMovingInsightMetric("Største kategori", insight.largestCategory ? insight.largestCategory.category.label : "—", insight.largestCategory ? `${formatCurrency(insight.largestCategory.amount)} · ${formatPercent(insight.largestCategory.share)}` : "Tilføj flere poster", insight.largestCategory?.category.tone || "soft")}
+        ${renderMovingInsightMetric("Købt/bestilt", formatCurrency(summary.committed), `${formatPercent(insight.committedShare)} af projektet · ${formatCurrency(summary.planned)} planlagt`, "sage")}
+        ${renderMovingInsightMetric("Dokumenteret", formatPercent(insight.documentationCoverage), `${insight.receiptCount}/${insight.itemCount} linjer har kvittering`, insight.documentationCoverage >= 0.8 ? "sage" : "gold")}
+        ${renderMovingInsightMetric("Gns. køb", formatCurrency(insight.averageItem), `${insight.pricedCount} linjer med pris`, "warm")}
+      </div>
+      <div class="move-insight-grid">
+        ${renderMovingInsightCard("Hvad går pengene til?", "Topkategorier med andel af totalen.", renderMovingInsightBarRows(insight.categoryRows.slice(0, 6), summary.total, (row) => row.category.label, (row) => `${row.count} linje${row.count === 1 ? "" : "r"} · gns. ${formatCurrency(row.average)}`, (row) => row.category.tone))}
+        ${renderMovingInsightCard("Status", "Købt, bestilt og planlagt side om side.", renderMovingInsightBarRows(insight.statusRows, summary.total, (row) => row.status.label, (row) => `${row.count} linje${row.count === 1 ? "" : "r"}`, () => "soft"))}
+        ${renderMovingInsightCard("Lagt ud vs. ansvar", "Skiller betaling fra hvem udgiften reelt tilhører.", renderMovingPayerInsight(insight, summary))}
+        ${renderMovingInsightCard("Dyreste poster", "De køb der flytter totalen mest.", renderMovingTopItems(insight.topItems))}
+        ${renderMovingInsightCard("Datakvalitet", "Det der gør overblikket mere sikkert.", renderMovingQualityRows(insight))}
+        ${renderMovingInsightCard("Næste gode træk", "Prioriteret ud fra det der ligger i overblikket nu.", renderMovingActionRows(insight, summary))}
+      </div>
+    </section>`;
+}
+
+function getMovingInsightData(project, summary) {
+  const items = project.items || [];
+  const total = Number(summary.total || 0);
+  const pricedItems = items.filter((item) => Number(item.price || 0) > 0);
+  const categoryRows = MOVING_CATEGORIES.map((category) => {
+    const rows = items.filter((item) => item.category === category.id);
+    const amount = rows.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    const planned = rows.filter((item) => item.status === "planned").reduce((sum, item) => sum + Number(item.price || 0), 0);
+    const committed = Math.max(0, amount - planned);
+    const largestItem = rows.slice().sort((a, b) => Number(b.price || 0) - Number(a.price || 0))[0] || null;
+    return { category, rows, amount, planned, committed, count: rows.length, average: rows.length ? amount / rows.length : 0, share: total ? amount / total : 0, largestItem };
+  }).filter((row) => row.count || row.amount).sort((a, b) => b.amount - a.amount);
+  const statusRows = MOVING_STATUSES.map((status) => {
+    const rows = items.filter((item) => item.status === status.id);
+    const amount = rows.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    return { status, rows, amount, count: rows.length, share: total ? amount / total : 0 };
+  }).filter((row) => row.count || row.amount);
+  const paidRows = MOVING_PAYERS.map((payer) => {
+    const rows = items.filter((item) => item.paidBy === payer.id);
+    const amount = rows.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    return { payer, rows, amount, count: rows.length, share: total ? amount / total : 0 };
+  }).filter((row) => row.count || row.amount);
+  const responsibilityRows = [
+    { id: "claes", label: "Claes' andel", amount: summary.claesShare || 0, share: total ? (summary.claesShare || 0) / total : 0 },
+    { id: "laura", label: "Lauras andel", amount: summary.lauraShare || 0, share: total ? (summary.lauraShare || 0) / total : 0 },
+    { id: "undecided", label: "Afklares", amount: summary.undecidedShare || 0, share: total ? (summary.undecidedShare || 0) / total : 0 },
+  ].filter((row) => row.amount || row.id !== "undecided");
+  const topItems = pricedItems.slice().sort((a, b) => Number(b.price || 0) - Number(a.price || 0)).slice(0, 5);
+  const missingPrice = items.filter((item) => !Number(item.price || 0));
+  const missingReceipt = items.filter((item) => item.status !== "planned" && !item.receipt);
+  const missingLinkOrImage = items.filter((item) => !String(item.link || "").trim() && !String(item.imageUrl || "").trim());
+  const undecidedSplit = items.filter((item) => item.split === "undecided");
+  const customSplitNeedsCheck = items.filter((item) => item.split === "custom" && Number(item.claesSharePct || 0) + Number(item.lauraSharePct || 0) <= 0);
+  const receiptItems = items.filter((item) => item.receipt);
+  const receiptAmount = receiptItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const linkedItems = items.filter((item) => String(item.link || "").trim());
+  const today = todayISO();
+  const daysToAccess = isIsoDate(project.accessDate) ? Math.max(0, daysBetween(project.accessDate, today)) : null;
+  const daysToAccessText = daysToAccess == null ? "Overtagelse ikke sat" : daysToAccess === 0 ? "Overtagelse nu" : `${daysToAccess} dage til overtagelse`;
+  const committedShare = total ? Number(summary.committed || 0) / total : 0;
+  const documentationCoverage = summary.committed ? receiptAmount / summary.committed : 0;
+  const actions = movingInsightActions({ summary, categoryRows, missingPrice, missingReceipt, missingLinkOrImage, undecidedSplit, customSplitNeedsCheck, daysToAccess, linkedItems, receiptItems, items });
+  return {
+    itemCount: items.length,
+    pricedCount: pricedItems.length,
+    averageItem: pricedItems.length ? total / pricedItems.length : 0,
+    largestCategory: categoryRows[0] || null,
+    categoryRows,
+    statusRows,
+    paidRows,
+    responsibilityRows,
+    topItems,
+    missingPrice,
+    missingReceipt,
+    missingLinkOrImage,
+    undecidedSplit,
+    customSplitNeedsCheck,
+    receiptCount: receiptItems.length,
+    receiptAmount,
+    linkedCount: linkedItems.length,
+    documentationCoverage,
+    committedShare,
+    daysToAccess,
+    daysToAccessText,
+    actions,
+  };
+}
+
+function movingInsightActions(data) {
+  const actions = [];
+  if (data.missingPrice.length) actions.push({ label: "Sæt pris på manglende poster", detail: `${data.missingPrice.length} linje${data.missingPrice.length === 1 ? "" : "r"} uden pris gør totalen for lav.` });
+  if (data.undecidedSplit.length) actions.push({ label: "Afklar hvem der betaler", detail: `${data.undecidedSplit.length} linje${data.undecidedSplit.length === 1 ? "" : "r"} står som “Afklares”.` });
+  if (data.missingReceipt.length) actions.push({ label: "Upload kvitteringer på købte ting", detail: `${data.missingReceipt.length} købt/bestilt linje${data.missingReceipt.length === 1 ? "" : "r"} mangler dokumentation.` });
+  if (Math.abs(data.summary.settlementNet || 0) >= 1) actions.push({ label: "Afstem mellemregning", detail: `${movingSettlementText(data.summary.settlementNet)} · ${formatCurrency(Math.abs(data.summary.settlementNet))}.` });
+  if (data.categoryRows[0]?.share >= 0.5) actions.push({ label: `Hold øje med ${data.categoryRows[0].category.label.toLowerCase()}`, detail: `Kategorien fylder ${formatPercent(data.categoryRows[0].share)} af Solvej 4-budgettet.` });
+  if (data.daysToAccess != null && data.daysToAccess <= 45 && data.summary.planned > 0) actions.push({ label: "Planlagte køb nærmer sig", detail: `${formatCurrency(data.summary.planned)} er stadig planlagt inden overtagelse.` });
+  if (!actions.length) actions.push({ label: "Overblikket ser rent ud", detail: "Der er pris, fordeling og dokumentation på de vigtigste poster." });
+  return actions.slice(0, 5);
+}
+
+function renderMovingInsightMetric(label, value, helper, tone = "soft") {
+  return `
+    <article class="move-insight-metric ${escapeHtml(tone)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${typeof value === "number" ? formatCurrency(value) : escapeHtml(String(value || "—"))}</strong>
+      <small>${escapeHtml(helper || "")}</small>
+    </article>`;
+}
+
+function renderMovingInsightCard(title, subtitle, body) {
+  return `
+    <article class="move-insight-card">
+      <div class="move-insight-card-head"><h3>${escapeHtml(title)}</h3><p>${escapeHtml(subtitle)}</p></div>
+      ${body}
+    </article>`;
+}
+
+function renderMovingInsightBarRows(rows, total, labelFn, helperFn, toneFn) {
+  if (!rows.length) return `<div class="empty-state compact-empty"><strong>Ingen data endnu</strong><span>Tilføj flere linjer for at se mønstre.</span></div>`;
+  const basis = Math.max(1, total || Math.max(...rows.map((row) => Number(row.amount || 0))));
+  return `
+    <div class="move-insight-bars">
+      ${rows.map((row) => {
+        const share = Math.max(0.04, Math.min(1, Number(row.amount || 0) / basis));
+        return `
+          <div class="move-insight-bar-row ${escapeHtml(toneFn(row) || "soft")}">
+            <div><strong>${escapeHtml(labelFn(row))}</strong><small>${escapeHtml(helperFn(row))}</small></div>
+            <i><b style="--width:${Math.round(share * 100)}%"></b></i>
+            <em>${formatCurrency(row.amount)}</em>
+          </div>`;
+      }).join("")}
+    </div>`;
+}
+
+function renderMovingPayerInsight(insight, summary) {
+  return `
+    <div class="move-payer-insight">
+      <div>
+        <h4>Lagt ud af</h4>
+        ${renderMovingInsightBarRows(insight.paidRows, summary.total, (row) => row.payer.label, (row) => `${row.count} linje${row.count === 1 ? "" : "r"}`, () => "sage")}
+      </div>
+      <div>
+        <h4>Skal bæres af</h4>
+        ${renderMovingInsightBarRows(insight.responsibilityRows, summary.total, (row) => row.label, (row) => `${formatPercent(row.share)} af total`, () => "gold")}
+      </div>
+      <div class="move-settlement-callout ${summary.settlementNet ? "active" : ""}">
+        <span>Mellemregning</span>
+        <strong>${summary.settlementNet ? formatCurrency(Math.abs(summary.settlementNet)) : "0 kr."}</strong>
+        <small>${escapeHtml(movingSettlementText(summary.settlementNet))}</small>
+      </div>
+    </div>`;
+}
+
+function renderMovingTopItems(items) {
+  if (!items.length) return `<div class="empty-state compact-empty"><strong>Ingen priser endnu</strong><span>Sæt pris på planlagte og købte ting.</span></div>`;
+  return `
+    <div class="move-top-items">
+      ${items.map((item, index) => `
+        <div class="move-top-item">
+          <span>${index + 1}</span>
+          <div><strong>${escapeHtml(item.name || "Unavngivet")}</strong><small>${escapeHtml(movingCategoryById(item.category).label)} · ${escapeHtml(movingLabel(MOVING_STATUSES, item.status))}</small></div>
+          <em>${formatCurrency(item.price)}</em>
+        </div>`).join("")}
+    </div>`;
+}
+
+function renderMovingQualityRows(insight) {
+  const rows = [
+    { label: "Mangler pris", value: insight.missingPrice.length, helper: previewMovingItemNames(insight.missingPrice) || "Alle linjer har pris" },
+    { label: "Mangler kvittering", value: insight.missingReceipt.length, helper: previewMovingItemNames(insight.missingReceipt) || "Købte/bestilte linjer er dokumenteret" },
+    { label: "Mangler link/billede", value: insight.missingLinkOrImage.length, helper: previewMovingItemNames(insight.missingLinkOrImage) || "Alle linjer har visuel reference" },
+    { label: "Afklares", value: insight.undecidedSplit.length + insight.customSplitNeedsCheck.length, helper: previewMovingItemNames([...insight.undecidedSplit, ...insight.customSplitNeedsCheck]) || "Fordeling ser afklaret ud" },
+  ];
+  return `
+    <div class="move-quality-list">
+      ${rows.map((row) => `
+        <div class="move-quality-row ${row.value ? "needs-work" : "ok"}">
+          <strong>${row.value}</strong>
+          <span>${escapeHtml(row.label)}<small>${escapeHtml(row.helper)}</small></span>
+        </div>`).join("")}
+    </div>`;
+}
+
+function renderMovingActionRows(insight, summary) {
+  return `
+    <div class="move-action-list">
+      ${insight.actions.map((action) => `
+        <div class="move-action-row">
+          <strong>${escapeHtml(action.label)}</strong>
+          <small>${escapeHtml(action.detail)}</small>
+        </div>`).join("")}
+    </div>`;
+}
+
+function previewMovingItemNames(items) {
+  return items.slice(0, 3).map((item) => item.name || "Unavngivet").join(", ") + (items.length > 3 ? ` +${items.length - 3}` : "");
 }
 
 function renderMovingAddForm() {
