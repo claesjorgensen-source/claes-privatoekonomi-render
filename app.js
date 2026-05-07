@@ -2274,8 +2274,9 @@ async function attachReceiptToMovingItem(id, file) {
     applyReceiptPreviewToReceipt(receipt, preview);
     item.receipt = receipt;
     item.receiptText = preview?.text || receipt.text || "";
-    if (preview?.title && (!item.name || /ny ting|kvittering/i.test(item.name))) item.name = preview.title;
-    if (Number.isFinite(preview?.price) && !item.price) item.price = preview.price;
+    if (preview?.title) item.name = preview.title;
+    if (Number.isFinite(preview?.price)) item.price = preview.price;
+    if (item.status === "planned") item.status = "bought";
     item.updatedAt = new Date().toISOString();
     saveState();
     render();
