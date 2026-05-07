@@ -3758,6 +3758,39 @@ button.list-row,
   font-size: 0.82rem;
 }
 
+.move-receipt-preview {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(0, 122, 83, 0.16);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.move-receipt-preview img {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  object-fit: cover;
+}
+
+.move-receipt-preview span {
+  display: grid;
+  gap: 3px;
+}
+
+.move-receipt-preview strong {
+  color: var(--accent-strong);
+  font-weight: 950;
+}
+
+.move-receipt-preview small {
+  color: var(--muted);
+  font-weight: 760;
+}
+
 .move-receipt-line {
   display: flex;
   flex-wrap: wrap;

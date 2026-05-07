@@ -2023,6 +2023,8 @@ function renderMovingCategoryPanel(summary) {
 function renderMovingAddForm() {
   const draft = ui.movingFormDraft || {};
   const receiptLabel = ui.movingReceiptDraft?.name ? `Kvittering klar: ${ui.movingReceiptDraft.name}` : "Upload kvittering — appen gemmer den og prøver at læse navn/pris fra tekstbaserede kvitteringer.";
+  const receiptImage = ui.movingReceiptDraft?.dataUrl?.startsWith("data:image/") ? ui.movingReceiptDraft.dataUrl : "";
+  const receiptPreview = receiptImage ? `<div class="move-receipt-preview move-wide"><img src="${escapeHtml(receiptImage)}" alt="" /><span><strong>Billede klar</strong><small>Kvitteringsbilledet bliver brugt som billede i overblikket.</small></span></div>` : "";
   return `
     <form class="move-add-form panel pad" id="moving-item-form">
       <div class="section-heading clean-heading"><div><h2>Tilføj køb</h2><p>Én linje er nok: ting, pris, udlæg og link.</p></div></div>
@@ -2036,6 +2038,7 @@ function renderMovingAddForm() {
         <label class="field move-wide"><span>Link</span><input class="input" name="link" type="url" value="${escapeHtml(draft.link || "")}" placeholder="https://..." /></label>
         <label class="field move-wide"><span>Billede-URL</span><input class="input" name="imageUrl" type="url" value="${escapeHtml(draft.imageUrl || "")}" placeholder="udfyldes fra link hvis muligt" /></label>
         <label class="field move-wide"><span>Kvittering</span><input class="input" id="moving-receipt-file" name="receipt" type="file" accept="image/*,.pdf,.txt,.html,.htm,text/*,application/pdf" /><small class="helper">${escapeHtml(receiptLabel)}</small></label>
+        ${receiptPreview}
       </div>
       <div class="move-form-actions">
         <button class="button ghost" type="button" data-action="preview-moving-form-link">Hent fra link</button>
@@ -2226,10 +2229,11 @@ async function previewMovingReceiptForForm(form, file) {
   if (!form || !file) return;
   try {
     const receipt = await readMovingReceiptFile(file);
+    const preview = await previewReceiptWithServer(receipt);
     ui.movingReceiptDraft = receipt;
-    applyReceiptExtractionToForm(form, receipt);
+    applyReceiptExtractionToForm(form, receipt, preview);
     render();
-    notify(receipt.text ? "Kvitteringen er gemt og felter er udfyldt hvor muligt." : "Kvitteringen er gemt. Billedkvitteringer gemmes som dokumentation; udfyld pris hvis den ikke kan læses.");
+    notify(preview?.price || preview?.title ? "Kvitteringen er læst, og felterne er udfyldt hvor muligt." : "Kvitteringen er gemt. Jeg kunne ikke læse pris/navn sikkert — ret manuelt hvis nødvendigt.");
   } catch (error) {
     ui.movingReceiptDraft = null;
     notify(`Kvitteringen kunne ikke læses: ${error.message}`, "danger");
@@ -2243,11 +2247,11 @@ async function attachReceiptToMovingItem(id, file) {
   try {
     notify("Læser kvittering …");
     const receipt = await readMovingReceiptFile(file);
+    const preview = await previewReceiptWithServer(receipt);
     item.receipt = receipt;
-    item.receiptText = receipt.text || "";
-    const extracted = extractReceiptInfoFromText(receipt.text || "", receipt.name);
-    if (extracted.title && (!item.name || /ny ting|kvittering/i.test(item.name))) item.name = extracted.title;
-    if (Number.isFinite(extracted.price) && !item.price) item.price = extracted.price;
+    item.receiptText = preview?.text || receipt.text || "";
+    if (preview?.title && (!item.name || /ny ting|kvittering/i.test(item.name))) item.name = preview.title;
+    if (Number.isFinite(preview?.price) && !item.price) item.price = preview.price;
     item.updatedAt = new Date().toISOString();
     saveState();
     render();
@@ -2258,14 +2262,36 @@ async function attachReceiptToMovingItem(id, file) {
   }
 }
 
-function applyReceiptExtractionToForm(form, receipt) {
+function applyReceiptExtractionToForm(form, receipt, preview = null) {
   const draft = captureMovingFormDraft(form);
-  const extracted = extractReceiptInfoFromText(receipt.text || "", receipt.name);
+  const extracted = preview || extractReceiptInfoFromText(receipt.text || "", receipt.name);
+  if (preview?.text && !receipt.text) receipt.text = preview.text;
   setMovingFormDraft(form, {
     name: draft.name || extracted.title || "",
     price: draft.price || (Number.isFinite(extracted.price) ? formatAmountInput(extracted.price) : ""),
     imageUrl: draft.imageUrl || "",
   });
+}
+
+async function previewReceiptWithServer(receipt) {
+  try {
+    const preview = await apiFetch("/api/receipt-preview", {
+      method: "POST",
+      body: {
+        name: receipt.name,
+        type: receipt.type,
+        dataUrl: receipt.dataUrl,
+        text: receipt.text,
+      },
+    });
+    return {
+      ...preview,
+      price: preview?.price == null ? NaN : Number(preview.price),
+    };
+  } catch (error) {
+    console.warn("Server-kvitteringslæsning fejlede", error);
+    return extractReceiptInfoFromText(receipt.text || "", receipt.name);
+  }
 }
 
 function captureMovingFormDraft(form) {
@@ -2289,11 +2315,12 @@ function setMovingFormDraft(form, updates = {}) {
 async function readMovingReceiptFile(file) {
   if (file.size > RECEIPT_MAX_UPLOAD_BYTES) throw new Error("Filen er for stor. Brug helst et billede/PDF under 8 MB.");
   const text = await extractReceiptText(file).catch(() => "");
-  const dataUrl = file.type.startsWith("image/") ? await compressReceiptImage(file) : await readFileAsDataUrl(file);
+  const imageLike = file.type.startsWith("image/");
+  const dataUrl = imageLike ? await compressReceiptImage(file) : await readFileAsDataUrl(file);
   if (dataUrl.length > RECEIPT_MAX_STORED_CHARS) throw new Error("Kvitteringen er for stor efter komprimering. Tag et mindre screenshot eller gem som JPEG.");
   return normalizeMovingReceipt({
     name: file.name || "kvittering",
-    type: file.type || guessReceiptType(file.name),
+    type: imageLike ? "image/jpeg" : (file.type || guessReceiptType(file.name)),
     size: file.size,
     dataUrl,
     text,
@@ -8027,7 +8054,12 @@ function parseAmount(value) {
   if (lastComma > lastDot) {
     text = text.replace(/\./g, "").replace(",", ".");
   } else if (lastDot > lastComma) {
-    text = text.replace(/,/g, "");
+    const dotParts = text.split(".");
+    if (lastComma === -1 && dotParts.length > 1 && dotParts.slice(1).every((part) => part.length === 3)) {
+      text = dotParts.join("");
+    } else {
+      text = text.replace(/,/g, "");
+    }
   } else {
     text = text.replace(",", ".");
   }

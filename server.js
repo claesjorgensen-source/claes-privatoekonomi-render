@@ -21,6 +21,7 @@ const EB_CERT_FILE = path.join(DATA_DIR, "enablebanking-public.crt");
 const GC_BASE_URL = "https://bankaccountdata.gocardless.com/api/v2";
 const EB_BASE_URL = "https://api.enablebanking.com";
 const LINK_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
+const RECEIPT_PREVIEW_MAX_BYTES = 8 * 1024 * 1024;
 const TOTALKREDIT_BOND_TABLES = {
   fixed: "privat-udbetaling-af-laan-aktuelle-kurser-kunder",
   variable: "privat-udbetaling-af-variabel-laan-aktuelle-kurser-kunder",
@@ -437,6 +438,11 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/link-preview") {
     sendJson(res, 200, await fetchLinkPreview(url.searchParams.get("url") || ""));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/receipt-preview") {
+    sendJson(res, 200, await previewReceipt(await readJsonBody(req)));
     return;
   }
 
@@ -1364,6 +1370,135 @@ function loadEnvFile(filePath) {
   }
 }
 
+
+
+
+let receiptOcrWorkerPromise = null;
+
+async function previewReceipt(body = {}) {
+  const dataUrl = String(body.dataUrl || "");
+  const name = String(body.name || "Kvittering");
+  const type = String(body.type || "");
+  const clientText = String(body.text || "").slice(0, 30000);
+  let text = clientText;
+  let ocrUsed = false;
+  let ocrError = "";
+  if (!text && isReceiptImageDataUrl(dataUrl)) {
+    try {
+      text = await ocrReceiptImage(dataUrl);
+      ocrUsed = true;
+    } catch (error) {
+      ocrError = error.message || "OCR fejlede";
+    }
+  }
+  const info = extractReceiptFields(text, name);
+  return {
+    ok: true,
+    name,
+    type,
+    text: text.slice(0, 20000),
+    ocrUsed,
+    ocrError,
+    ...info,
+  };
+}
+
+function isReceiptImageDataUrl(dataUrl) {
+  return /^data:image\/(png|jpe?g|webp|bmp|gif);base64,/i.test(String(dataUrl || ""));
+}
+
+async function ocrReceiptImage(dataUrl) {
+  const buffer = dataUrlToBuffer(dataUrl, RECEIPT_PREVIEW_MAX_BYTES);
+  const worker = await getReceiptOcrWorker();
+  const result = await worker.recognize(buffer);
+  return String(result?.data?.text || "").replace(/\s+$/g, "");
+}
+
+async function getReceiptOcrWorker() {
+  if (!receiptOcrWorkerPromise) {
+    receiptOcrWorkerPromise = (async () => {
+      const mod = await import("tesseract.js");
+      const createWorker = mod.createWorker || mod.default?.createWorker;
+      if (!createWorker) throw new Error("OCR-modul mangler.");
+      try {
+        return await createWorker("dan+eng", 1, { logger: () => {} });
+      } catch (firstError) {
+        try {
+          return await createWorker("eng", 1, { logger: () => {} });
+        } catch {
+          throw firstError;
+        }
+      }
+    })().catch((error) => {
+      receiptOcrWorkerPromise = null;
+      throw error;
+    });
+  }
+  return receiptOcrWorkerPromise;
+}
+
+function dataUrlToBuffer(dataUrl, maxBytes) {
+  const match = String(dataUrl || "").match(/^data:([^;,]+)?;base64,(.+)$/i);
+  if (!match) throw new Error("Kvitteringen mangler data.");
+  const approxBytes = Math.floor(match[2].length * 0.75);
+  if (approxBytes > maxBytes) throw new Error("Kvitteringen er for stor til OCR.");
+  return Buffer.from(match[2], "base64");
+}
+
+function extractReceiptFields(text, fileName = "") {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const title = receiptTitleFromLines(lines) || String(fileName || "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+  const price = receiptTotalFromText(clean);
+  const date = receiptDateFromText(clean);
+  return { title: title || "", price: Number.isFinite(price) ? price : null, date: date || "" };
+}
+
+function receiptTitleFromLines(lines) {
+  const blacklist = /kvittering|receipt|faktura|invoice|total|i alt|moms|betaling|dato|ordrenr|ordre nr|cvr|tlf|telefon|tak for/i;
+  return lines.find((line) => line.length >= 3 && line.length <= 80 && !blacklist.test(line) && /[a-zæøå]/i.test(line)) || "";
+}
+
+function receiptTotalFromText(text) {
+  const candidates = [];
+  const labelled = /(total|i alt|beløb|betalt|amount|sum|ordre total|ordretotal|kortbetaling|betaling)[^0-9-]{0,35}(-?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})?|-?\d+(?:,\d{2})?)/gi;
+  for (const match of text.matchAll(labelled)) {
+    const amount = parseDanishAmount(match[2]);
+    if (Number.isFinite(amount)) candidates.push(Math.abs(amount));
+  }
+  if (candidates.length) return candidates.at(-1);
+  const amounts = Array.from(text.matchAll(/\b\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})\b|\b\d+(?:,\d{2})\b/g))
+    .map((match) => Math.abs(parseDanishAmount(match[0])))
+    .filter((amount) => Number.isFinite(amount) && amount > 0 && amount < 1_000_000);
+  return amounts.length ? Math.max(...amounts) : NaN;
+}
+
+function receiptDateFromText(text) {
+  const match = String(text || "").match(/\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})\b/);
+  if (!match) return "";
+  const day = String(match[1]).padStart(2, "0");
+  const month = String(match[2]).padStart(2, "0");
+  let year = Number(match[3]);
+  if (year < 100) year += 2000;
+  return `${year}-${month}-${day}`;
+}
+
+function parseDanishAmount(value) {
+  let text = String(value || "").trim().replace(/\s/g, "").replace(/kr\.?|dkk/gi, "");
+  if (!text) return NaN;
+  const negative = text.startsWith("-") || text.endsWith("-") || /^\(.*\)$/.test(text);
+  text = text.replace(/[()+-]/g, "");
+  const lastComma = text.lastIndexOf(",");
+  const lastDot = text.lastIndexOf(".");
+  if (lastComma > lastDot) text = text.replace(/\./g, "").replace(",", ".");
+  else if (lastDot > lastComma) {
+    const dotParts = text.split(".");
+    if (lastComma === -1 && dotParts.length > 1 && dotParts.slice(1).every((part) => part.length === 3)) text = dotParts.join("");
+    else text = text.replace(/,/g, "");
+  } else text = text.replace(",", ".");
+  const number = Number(text.replace(/[^0-9.]/g, ""));
+  return negative ? -number : number;
+}
 
 
 let totalkreditRatesCache = { at: 0, data: null };
