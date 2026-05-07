@@ -2038,7 +2038,7 @@ function renderMovingAffordabilityPanel(project, summary) {
       </div>
       <div class="move-affordability-kpis">
         ${renderMovingAffordabilityKpi("Din nye ydelse", data.futureHousingShareAfterTax, `${formatCurrency(data.monthlyAfterTaxShare)} lån efter skat${data.futureOtherHousingShare ? ` + ${formatCurrency(data.futureOtherHousingShare)} øvrigt` : ""}`, "deep")}
-        ${renderMovingAffordabilityKpi("Nuværende bolig/lån", data.avgCurrentHousing, `Historisk snit over ${data.rows.length} mdr.`, "sage")}
+        ${renderMovingAffordabilityKpi("Nuværende bolig/lån", data.avgCurrentHousing, `Historisk snit over ${data.averageBasisCount} hele mdr.`, "sage")}
         ${renderMovingAffordabilityKpi(data.avgDeltaCost > 0 ? "Tungere pr. md." : "Lettere pr. md.", Math.abs(data.avgDeltaCost), data.avgDeltaCost > 0 ? "Ny ydelse er højere end historisk bolig/lån" : "Ny ydelse er lavere end historisk bolig/lån", deltaTone)}
         ${renderMovingAffordabilityKpi("Tilbage efter ny ydelse", data.avgProjectedLeft, `Laveste måned ${formatCurrency(data.worstProjectedLeft)}`, "gold")}
       </div>
@@ -2077,10 +2077,13 @@ function getMovingAffordabilityData(project, summary) {
       transactionCount: txRows.length,
     };
   }).filter((row) => row.transactionCount || row.income || row.expenses);
-  const count = Math.max(1, rows.length);
-  const avg = (field) => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0) / count;
+  const averageRows = rows.filter((row) => row.month < currentMonthKey() && row.income > 0 && row.expenses > 0);
+  const basisRows = averageRows.length ? averageRows : rows;
+  const count = Math.max(1, basisRows.length);
+  const avg = (field) => basisRows.reduce((sum, row) => sum + Number(row[field] || 0), 0) / count;
   return {
     rows: rows.slice().reverse(),
+    averageBasisCount: count,
     ownershipSharePct: financing.ownershipSharePct,
     monthlyAfterTaxShare: financing.monthlyAfterTaxShare,
     monthlyBeforeTaxShare: financing.monthlyBeforeTaxShare,
