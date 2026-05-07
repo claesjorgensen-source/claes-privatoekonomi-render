@@ -2409,25 +2409,60 @@ function unescapePdfString(value) {
 function extractReceiptInfoFromText(text, fileName = "") {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
   const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const title = receiptTitleFromLines(lines) || fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+  const title = receiptTitleFromLines(lines) || (clean ? receiptTitleFromFileName(fileName) : "");
   const price = receiptTotalFromText(clean);
-  return { title: clean ? title : title || "", price };
+  return { title: title || "", price };
+}
+
+function receiptTitleFromFileName(fileName = "") {
+  const title = String(fileName || "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+  if (!title || /^img\s*\d+$/i.test(title) || /^image\s*\d*$/i.test(title) || /^scan\s*\d*$/i.test(title)) return "";
+  return title;
 }
 
 function receiptTitleFromLines(lines) {
-  return lines.find((line) => line.length >= 3 && line.length <= 80 && !/kvittering|receipt|faktura|invoice|total|moms|betaling|dato/i.test(line)) || "";
+  const candidates = lines.map((line) => cleanReceiptTitleCandidate(line)).filter((line) => line.length >= 3 && line.length <= 90 && /[a-zæøå]/i.test(line));
+  const furniture = candidates.find((line) => RECEIPT_ITEM_KEYWORDS.test(line));
+  if (furniture) return furniture;
+  return candidates.find((line) => !RECEIPT_TITLE_BLACKLIST.test(line)) || "";
+}
+
+const RECEIPT_ITEM_KEYWORDS = /\b(spisebord|bord|table|dining|stol|chair|sofa|skænk|skaenk|skab|reol|lampe|seng|madras|hylde|tæppe|taeppe|gardin|kommode|bænk|baenk|vitrine|møbel|moebel|furniture)\b/i;
+const RECEIPT_TITLE_BLACKLIST = /kvittering|receipt|faktura|invoice|total|i alt|ialt|moms|betaling|betalt|dato|ordrenr|ordre nr|order|cvr|tlf|telefon|tak for|levering|fragt|subtotal|vat|kundeservice|www\.|@/i;
+
+function cleanReceiptTitleCandidate(line) {
+  return String(line || "")
+    .replace(/\b(varenr|vare nr|item no|sku|ean|antal|qty|stk\.?|pcs?)\b[:.]?/gi, " ")
+    .replace(/\b\d+\s*x\b/gi, " ")
+    .replace(/\b\d+\s*(stk|pcs?)\.?\b/gi, " ")
+    .replace(/[-–—]?\s*(?:kr\.?|dkk)?\s*-?\d{1,3}(?:[.\s]\d{3})*(?:[,\.]\d{2})?\s*(?:kr\.?|dkk)?\s*(?:,-)?/gi, " ")
+    .replace(/\b\d{5,}\b/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .replace(/^[-–—:;,.\s]+|[-–—:;,.\s]+$/g, "");
 }
 
 function receiptTotalFromText(text) {
   const candidates = [];
-  const labelled = /(total|i alt|beløb|betalt|amount|sum|ordre total|ordretotal)[^0-9-]{0,28}(-?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})?|-?\d+(?:,\d{2})?)/gi;
+  const amountPattern = "-?(?:dkk|kr\\.?)?\\s*\\d{1,3}(?:[.\\s]\\d{3})*(?:[,\\.]\\d{2})?|-?(?:dkk|kr\\.?)?\\s*\\d+(?:[,\\.]\\d{2})?";
+  const labelPattern = "total(?:beløb| amount)?|i alt|ialt|beløb|betalt|amount|sum|ordre(?: total|beløb|sum)?|ordretotal|kortbetaling|betaling|at betale|samlet(?: pris)?|grand total|subtotal";
+  const labelled = new RegExp(`(${labelPattern})[^0-9-]{0,55}(${amountPattern})`, "gi");
   for (const match of text.matchAll(labelled)) {
     const amount = parseAmount(match[2]);
-    if (Number.isFinite(amount)) candidates.push(Math.abs(amount));
+    if (isLikelyReceiptAmount(amount)) candidates.push({ amount: Math.abs(amount), score: 3 });
   }
-  if (candidates.length) return candidates.at(-1);
-  const amounts = Array.from(text.matchAll(/\b\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})\b|\b\d+(?:,\d{2})\b/g)).map((match) => Math.abs(parseAmount(match[0]))).filter((amount) => Number.isFinite(amount) && amount > 0 && amount < 1_000_000);
+  const amountBeforeLabel = new RegExp(`(${amountPattern})[^a-zæøå]{0,18}(${labelPattern})`, "gi");
+  for (const match of text.matchAll(amountBeforeLabel)) {
+    const amount = parseAmount(match[1]);
+    if (isLikelyReceiptAmount(amount)) candidates.push({ amount: Math.abs(amount), score: 2 });
+  }
+  if (candidates.length) return candidates.sort((a, b) => a.score - b.score || a.amount - b.amount).at(-1).amount;
+  const amounts = Array.from(text.matchAll(/\b(?:dkk|kr\.?)?\s*\d{1,3}(?:[.\s]\d{3})*(?:[,\.]\d{2})\s*(?:kr\.?|dkk)?\b|\b(?:dkk|kr\.?)?\s*\d{1,3}(?:[.\s]\d{3})+\s*(?:,-)?\s*(?:kr\.?|dkk)?\b/gi)).map((match) => Math.abs(parseAmount(match[0]))).filter(isLikelyReceiptAmount);
   return amounts.length ? Math.max(...amounts) : NaN;
+}
+
+function isLikelyReceiptAmount(amount) {
+  return Number.isFinite(amount) && Math.abs(amount) >= 10 && Math.abs(amount) < 1_000_000;
 }
 
 function guessReceiptType(name = "") {
