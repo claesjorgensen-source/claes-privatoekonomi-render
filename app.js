@@ -75,6 +75,8 @@ const DEFAULT_MOVING_PROJECT = {
   loanChoice: "pending",
   purchasePrice: 0,
   downPayment: 0,
+  ownershipSharePct: 50,
+  futureMonthlyOtherHousingCosts: 0,
   loanNeed: 0,
   loanPrincipal: 0,
   monthlyPaymentBeforeTax: 0,
@@ -1748,6 +1750,8 @@ function normalizeMovingProject(project = {}) {
     loanChoice: ["pending", "fixed", "fkort"].includes(source.loanChoice) ? source.loanChoice : "pending",
     purchasePrice: Math.max(0, Number(source.purchasePrice || 0) || 0),
     downPayment: Math.max(0, Number(source.downPayment || 0) || 0),
+    ownershipSharePct: clampPercent(Number(source.ownershipSharePct ?? DEFAULT_MOVING_PROJECT.ownershipSharePct)),
+    futureMonthlyOtherHousingCosts: Math.max(0, Number(source.futureMonthlyOtherHousingCosts || 0) || 0),
     loanNeed: Math.max(0, Number(source.loanNeed || 0) || 0),
     loanPrincipal: Math.max(0, Number(source.loanPrincipal || 0) || 0),
     monthlyPaymentBeforeTax: Math.max(0, Number(source.monthlyPaymentBeforeTax || 0) || 0),
@@ -1863,9 +1867,16 @@ function getMovingFinancing(project = getMovingProject()) {
   const cashShare = purchasePrice ? downPayment / purchasePrice : 0;
   const monthlyBeforeTax = Number(project.monthlyPaymentBeforeTax || 0);
   const monthlyAfterTax = Number(project.monthlyPaymentAfterTax || 0);
+  const ownershipShare = clampPercent(Number(project.ownershipSharePct ?? 50)) / 100;
+  const futureMonthlyOtherHousingCosts = Number(project.futureMonthlyOtherHousingCosts || 0);
+  const monthlyBeforeTaxShare = monthlyBeforeTax * ownershipShare;
+  const monthlyAfterTaxShare = (monthlyAfterTax || monthlyBeforeTax) * ownershipShare;
+  const futureOtherHousingShare = futureMonthlyOtherHousingCosts * ownershipShare;
+  const futureHousingShareAfterTax = monthlyAfterTaxShare + futureOtherHousingShare;
+  const futureHousingShareBeforeTax = monthlyBeforeTaxShare + futureOtherHousingShare;
   const yearlyBeforeTax = monthlyBeforeTax * 12;
   const yearlyAfterTax = monthlyAfterTax * 12;
-  return { purchasePrice, downPayment, rawLoanNeed, loanNeed, loanPrincipal, course, courseValue, payoutAmount, courseLoss, financingCosts, loanToValue, cashShare, monthlyBeforeTax, monthlyAfterTax, yearlyBeforeTax, yearlyAfterTax };
+  return { purchasePrice, downPayment, rawLoanNeed, loanNeed, loanPrincipal, course, courseValue, payoutAmount, courseLoss, financingCosts, loanToValue, cashShare, monthlyBeforeTax, monthlyAfterTax, monthlyBeforeTaxShare, monthlyAfterTaxShare, ownershipShare, ownershipSharePct: ownershipShare * 100, futureMonthlyOtherHousingCosts, futureOtherHousingShare, futureHousingShareAfterTax, futureHousingShareBeforeTax, yearlyBeforeTax, yearlyAfterTax };
 }
 
 function getMovingSummary(project = getMovingProject()) {
@@ -1936,6 +1947,7 @@ function renderMovingProjectView() {
       </div>
     </section>
 
+    ${renderMovingAffordabilityPanel(project, summary)}
     ${renderMovingInsightsPanel(project, summary)}
 
     <section class="move-ledger section panel pad">
@@ -2005,6 +2017,111 @@ function renderMovingFinanceCell(label, value, helper = "") {
       <span>${escapeHtml(label)}</span>
       <strong>${value ? formatCurrency(value) : "—"}</strong>
       <small>${escapeHtml(helper || "")}</small>
+    </div>`;
+}
+
+function renderMovingAffordabilityPanel(project, summary) {
+  const data = getMovingAffordabilityData(project, summary);
+  if (!data.rows.length || !data.futureHousingShareAfterTax) {
+    return `
+      <section class="move-affordability section panel pad">
+        <div class="section-heading clean-heading"><div><h2>Efter lån måned for måned</h2><p>Sæt ydelse og ejerandel for at se hvad du historisk ville have haft tilbage.</p></div></div>
+        <div class="empty-state compact-empty"><strong>Mangler lånedata eller historik</strong><span>Udfyld ydelse efter skat og ejerandel i Rammer og lån.</span></div>
+      </section>`;
+  }
+  const deltaTone = data.avgDeltaCost > 0 ? "danger" : "positive";
+  return `
+    <section class="move-affordability section panel pad" aria-label="Efter lån måned for måned">
+      <div class="section-heading clean-heading">
+        <div><h2>Efter lån måned for måned</h2><p>Historisk cashflow justeret for din ejerandel af den nye boligydelse.</p></div>
+        <span class="pill muted">${formatNumber(data.ownershipSharePct)}% ejerandel</span>
+      </div>
+      <div class="move-affordability-kpis">
+        ${renderMovingAffordabilityKpi("Din nye ydelse", data.futureHousingShareAfterTax, `${formatCurrency(data.monthlyAfterTaxShare)} lån efter skat${data.futureOtherHousingShare ? ` + ${formatCurrency(data.futureOtherHousingShare)} øvrigt` : ""}`, "deep")}
+        ${renderMovingAffordabilityKpi("Nuværende bolig/lån", data.avgCurrentHousing, `Historisk snit over ${data.rows.length} mdr.`, "sage")}
+        ${renderMovingAffordabilityKpi(data.avgDeltaCost > 0 ? "Tungere pr. md." : "Lettere pr. md.", Math.abs(data.avgDeltaCost), data.avgDeltaCost > 0 ? "Ny ydelse er højere end historisk bolig/lån" : "Ny ydelse er lavere end historisk bolig/lån", deltaTone)}
+        ${renderMovingAffordabilityKpi("Tilbage efter ny ydelse", data.avgProjectedLeft, `Laveste måned ${formatCurrency(data.worstProjectedLeft)}`, "gold")}
+      </div>
+      <div class="move-affordability-note">
+        <strong>Metode</strong>
+        <span>For hver måned: historisk indkomst minus historisk forbrug uden nuværende bolig-/låneposter plus din andel af ny ydelse. Nuværende bolig/lån findes i bankdata via realkredit/ejerforening/boligposter.</span>
+      </div>
+      <div class="move-affordability-table" role="table" aria-label="Historisk effekt af ny boligydelse">
+        <div class="move-affordability-head" role="row"><span>Måned</span><span>Ind</span><span>Forbrug i dag</span><span>Nuv. bolig/lån</span><span>Ny ydelse</span><span>Tilbage fremad</span><span>Forskel</span></div>
+        ${data.rows.map(renderMovingAffordabilityRow).join("")}
+      </div>
+    </section>`;
+}
+
+function getMovingAffordabilityData(project, summary) {
+  const financing = summary.financing || getMovingFinancing(project);
+  const latest = ui.month || latestTransactionMonth() || currentMonthKey();
+  const months = lastMonths(latest, 12);
+  const rows = months.map((month) => {
+    const txRows = getReportingTransactionsForMonth(month);
+    const monthly = summarizeTransactions(txRows);
+    const currentHousing = txRows.filter(isCurrentPrimaryHousingCost).reduce((sum, tx) => sum + Math.abs(Number(tx.amount || 0)), 0);
+    const projectedExpenses = Math.max(0, monthly.expenses - currentHousing + financing.futureHousingShareAfterTax);
+    const projectedLeft = monthly.income - projectedExpenses;
+    const deltaCost = financing.futureHousingShareAfterTax - currentHousing;
+    return {
+      month,
+      income: monthly.income,
+      expenses: monthly.expenses,
+      currentLeft: monthly.savings,
+      currentHousing,
+      projectedExpenses,
+      projectedLeft,
+      deltaCost,
+      deltaLeft: projectedLeft - monthly.savings,
+      transactionCount: txRows.length,
+    };
+  }).filter((row) => row.transactionCount || row.income || row.expenses);
+  const count = Math.max(1, rows.length);
+  const avg = (field) => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0) / count;
+  return {
+    rows: rows.slice().reverse(),
+    ownershipSharePct: financing.ownershipSharePct,
+    monthlyAfterTaxShare: financing.monthlyAfterTaxShare,
+    monthlyBeforeTaxShare: financing.monthlyBeforeTaxShare,
+    futureOtherHousingShare: financing.futureOtherHousingShare,
+    futureHousingShareAfterTax: financing.futureHousingShareAfterTax,
+    avgCurrentHousing: avg("currentHousing"),
+    avgDeltaCost: avg("deltaCost"),
+    avgProjectedLeft: avg("projectedLeft"),
+    worstProjectedLeft: rows.length ? Math.min(...rows.map((row) => row.projectedLeft)) : 0,
+  };
+}
+
+function isCurrentPrimaryHousingCost(tx) {
+  if (!isReportExpense(tx)) return false;
+  const text = normalize(`${tx.description || ""} ${tx.note || ""} ${tx.merchant || ""}`);
+  const category = tx.categoryId || "";
+  if (category !== "cat-housing" && categoryById(category)?.name !== "Bolig & regninger") return false;
+  return /(totalkredit|realkredit|kreditforening|nykredit|brf|nordea kredit|jyske realkredit|ejerforening|faellesudgift|fællesudgift|e\/f|ef |adm\.service|grundskyld|ejendomsskat|tinglysning)/i.test(text);
+}
+
+function renderMovingAffordabilityKpi(label, value, helper, tone = "soft") {
+  return `
+    <article class="move-affordability-kpi ${escapeHtml(tone)}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${formatCurrency(value)}</strong>
+      <small>${escapeHtml(helper || "")}</small>
+    </article>`;
+}
+
+function renderMovingAffordabilityRow(row) {
+  const heavier = row.deltaCost > 0.5;
+  const lighter = row.deltaCost < -0.5;
+  return `
+    <div class="move-affordability-row ${heavier ? "heavier" : lighter ? "lighter" : "flat"}" role="row">
+      <span><strong>${escapeHtml(monthLabel(row.month))}</strong><small>${row.deltaCost > 0 ? "Tungere" : row.deltaCost < 0 ? "Lettere" : "Uændret"}</small></span>
+      <em>${formatCurrency(row.income)}</em>
+      <em>${formatCurrency(row.expenses)}</em>
+      <em>${formatCurrency(row.currentHousing)}</em>
+      <em>${formatCurrency(row.currentHousing + row.deltaCost)}</em>
+      <em class="strong">${formatCurrency(row.projectedLeft)}</em>
+      <em class="${heavier ? "negative" : lighter ? "positive" : ""}">${row.deltaCost ? `${heavier ? "-" : "+"}${formatCurrency(Math.abs(row.deltaCost))}` : "0 kr."}</em>
     </div>`;
 }
 
@@ -2363,6 +2480,8 @@ function renderMovingSettingsForm(project) {
         <label class="field"><span>Scenarie</span><input class="input" name="loanScenarioName" value="${escapeHtml(project.loanScenarioName || "")}" placeholder="fx 3,8 mio. egenbetaling" /></label>
         <label class="field"><span>Købspris</span><input class="input" inputmode="decimal" name="purchasePrice" value="${escapeHtml(project.purchasePrice ? formatAmountInput(project.purchasePrice) : "")}" ${privacyInputAttrs()} /></label>
         <label class="field"><span>Egenbetaling</span><input class="input" inputmode="decimal" name="downPayment" value="${escapeHtml(project.downPayment ? formatAmountInput(project.downPayment) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Min ejerandel %</span><input class="input" inputmode="decimal" name="ownershipSharePct" value="${escapeHtml(formatNumber(project.ownershipSharePct || 50))}" /></label>
+        <label class="field"><span>Øvrig bolig/md.</span><input class="input" inputmode="decimal" name="futureMonthlyOtherHousingCosts" value="${escapeHtml(project.futureMonthlyOtherHousingCosts ? formatAmountInput(project.futureMonthlyOtherHousingCosts) : "")}" ${privacyInputAttrs()} /></label>
         <label class="field"><span>Lånebehov</span><input class="input" inputmode="decimal" name="loanNeed" value="${escapeHtml(project.loanNeed ? formatAmountInput(project.loanNeed) : "")}" ${privacyInputAttrs()} /></label>
         <label class="field"><span>Hovedstol</span><input class="input" inputmode="decimal" name="loanPrincipal" value="${escapeHtml(project.loanPrincipal ? formatAmountInput(project.loanPrincipal) : (project.loanAmount ? formatAmountInput(project.loanAmount) : ""))}" ${privacyInputAttrs()} /></label>
         <label class="field"><span>Ydelse før skat</span><input class="input" inputmode="decimal" name="monthlyPaymentBeforeTax" value="${escapeHtml(project.monthlyPaymentBeforeTax ? formatAmountInput(project.monthlyPaymentBeforeTax) : "")}" ${privacyInputAttrs()} /></label>
@@ -2921,10 +3040,12 @@ function updateMovingSettingsFromForm(form) {
   if (isIsoDate(accessDate)) project.accessDate = accessDate;
   project.loanDeadlineDaysBefore = Math.max(0, Number(data.get("loanDeadlineDaysBefore") || 0) || 0);
   project.loanScenarioName = String(data.get("loanScenarioName") || "").trim();
-  for (const field of ["purchasePrice", "downPayment", "loanNeed", "loanPrincipal", "monthlyPaymentBeforeTax", "monthlyPaymentAfterTax", "loanCosts", "courseValue", "payoutAmount"]) {
+  for (const field of ["purchasePrice", "downPayment", "futureMonthlyOtherHousingCosts", "loanNeed", "loanPrincipal", "monthlyPaymentBeforeTax", "monthlyPaymentAfterTax", "loanCosts", "courseValue", "payoutAmount"]) {
     const amount = parseAmount(data.get(field));
     project[field] = Number.isFinite(amount) ? Math.max(0, amount) : 0;
   }
+  const ownershipSharePct = parseAmount(data.get("ownershipSharePct"));
+  project.ownershipSharePct = Number.isFinite(ownershipSharePct) ? clampPercent(ownershipSharePct) : 50;
   project.loanAmount = project.loanPrincipal || project.loanNeed || 0;
   const fixedRateCoupon = parseAmount(data.get("fixedRateCoupon"));
   if (Number.isFinite(fixedRateCoupon)) project.fixedRateCoupon = Math.max(0, fixedRateCoupon);

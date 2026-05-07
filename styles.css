@@ -3710,8 +3710,138 @@ button.list-row,
 .move-category-row.sage b { background: #007a53; }
 .move-category-row.soft b { background: #9aa96b; }
 
+.move-affordability,
 .move-insights {
   background: linear-gradient(145deg, rgba(255, 250, 241, 0.9), rgba(237, 248, 241, 0.78));
+  overflow: hidden;
+}
+
+.move-affordability-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.move-affordability-kpi {
+  border: 1px solid rgba(16, 35, 29, 0.1);
+  border-radius: 22px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 12px 36px rgba(16, 35, 29, 0.045);
+  display: grid;
+  gap: 6px;
+}
+
+.move-affordability-kpi span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 940;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.move-affordability-kpi strong {
+  font-size: 1.28rem;
+  letter-spacing: -0.055em;
+  line-height: 1.05;
+}
+
+.move-affordability-kpi small,
+.move-affordability-note span,
+.move-affordability-row small {
+  color: var(--muted);
+  font-weight: 740;
+}
+
+.move-affordability-kpi.sage { background: rgba(0, 122, 83, 0.09); }
+.move-affordability-kpi.gold { background: rgba(201, 154, 39, 0.12); }
+.move-affordability-kpi.deep { background: rgba(16, 35, 29, 0.08); }
+.move-affordability-kpi.positive { background: rgba(0, 122, 83, 0.1); }
+.move-affordability-kpi.danger { background: rgba(199, 131, 69, 0.14); }
+
+.move-affordability-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(16, 35, 29, 0.08);
+}
+
+.move-affordability-note strong {
+  color: var(--accent-strong);
+  font-size: 0.76rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.move-affordability-table {
+  display: grid;
+  gap: 7px;
+}
+
+.move-affordability-head,
+.move-affordability-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) repeat(6, minmax(105px, 0.8fr));
+  gap: 10px;
+  align-items: center;
+}
+
+.move-affordability-head {
+  padding: 0 10px 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 920;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.move-affordability-row {
+  padding: 11px 10px;
+  border: 1px solid rgba(16, 35, 29, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.move-affordability-row.heavier {
+  border-color: rgba(199, 131, 69, 0.2);
+}
+
+.move-affordability-row.lighter {
+  border-color: rgba(0, 122, 83, 0.18);
+}
+
+.move-affordability-row span strong,
+.move-affordability-row em {
+  display: block;
+  font-style: normal;
+  font-weight: 880;
+}
+
+.move-affordability-row em {
+  text-align: right;
+}
+
+.move-affordability-row em.strong {
+  color: var(--ink);
+  font-weight: 960;
+}
+
+.move-affordability-row em.negative {
+  color: #9a5b17;
+}
+
+.move-affordability-row em.positive {
+  color: var(--accent-strong);
+}
+
+.move-insights {
   overflow: hidden;
 }
 
@@ -4315,12 +4445,15 @@ button.list-row,
   .move-layout,
   .move-kpi-grid,
   .move-financing-grid,
+  .move-affordability-head,
+  .move-affordability-row,
   .move-insight-grid,
   .move-items-head,
   .move-item-row {
     grid-template-columns: 1fr;
   }
 
+  .move-affordability-kpis,
   .move-insight-hero-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4406,6 +4539,8 @@ button.list-row,
   .filters,
   .move-add-grid,
   .move-settings-grid,
+  .move-affordability-kpis,
+  .move-affordability-note,
   .move-insight-hero-grid,
   .move-line-meta,
   .move-category-row,
@@ -4429,6 +4564,7 @@ button.list-row,
     grid-template-columns: 1fr;
   }
 
+  .move-affordability-row em,
   .move-insight-bar-row em,
   .move-top-item em,
   .tk-rate-history strong,
