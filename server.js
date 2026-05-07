@@ -1382,36 +1382,96 @@ async function previewReceipt(body = {}) {
   const clientText = String(body.text || "").slice(0, 30000);
   let text = clientText;
   let ocrUsed = false;
+  let pdfTextUsed = false;
   let ocrError = "";
+  let pdfError = "";
+
+  if (isReceiptPdfDataUrl(dataUrl)) {
+    try {
+      const pdfText = await extractReceiptPdfText(dataUrl);
+      if (pdfText.length > text.length) {
+        text = pdfText;
+        pdfTextUsed = true;
+      }
+    } catch (error) {
+      pdfError = error.message || "PDF-tekst kunne ikke læses";
+    }
+  }
+
+  let imageDataUrl = "";
   if (!text && isReceiptImageDataUrl(dataUrl)) {
     try {
-      text = await ocrReceiptImage(dataUrl);
+      const ocr = await ocrReceiptImage(dataUrl);
+      text = ocr.text;
+      imageDataUrl = ocr.imageDataUrl;
       ocrUsed = true;
     } catch (error) {
       ocrError = error.message || "OCR fejlede";
     }
   }
+
   const info = extractReceiptFields(text, name);
   return {
     ok: true,
     name,
     type,
     text: text.slice(0, 20000),
+    imageDataUrl,
     ocrUsed,
+    pdfTextUsed,
     ocrError,
+    pdfError,
     ...info,
   };
 }
 
 function isReceiptImageDataUrl(dataUrl) {
-  return /^data:image\/(png|jpe?g|webp|bmp|gif);base64,/i.test(String(dataUrl || ""));
+  return /^data:image\/(png|jpe?g|webp|bmp|gif|heic|heif);base64,/i.test(String(dataUrl || ""));
+}
+
+function isReceiptPdfDataUrl(dataUrl) {
+  return /^data:application\/pdf;base64,/i.test(String(dataUrl || ""));
 }
 
 async function ocrReceiptImage(dataUrl) {
-  const buffer = dataUrlToBuffer(dataUrl, RECEIPT_PREVIEW_MAX_BYTES);
+  const { buffer, mimeType } = dataUrlToBuffer(dataUrl, RECEIPT_PREVIEW_MAX_BYTES);
+  const isHeic = /image\/(heic|heif)/i.test(mimeType);
+  const imageBuffer = isHeic ? await convertHeicToJpeg(buffer) : buffer;
   const worker = await getReceiptOcrWorker();
-  const result = await worker.recognize(buffer);
-  return String(result?.data?.text || "").replace(/\s+$/g, "");
+  const result = await worker.recognize(imageBuffer);
+  return {
+    text: String(result?.data?.text || "").replace(/\s+$/g, ""),
+    imageDataUrl: isHeic ? `data:image/jpeg;base64,${imageBuffer.toString("base64")}` : "",
+  };
+}
+
+async function extractReceiptPdfText(dataUrl) {
+  const { buffer } = dataUrlToBuffer(dataUrl, RECEIPT_PREVIEW_MAX_BYTES);
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    disableFontFace: true,
+    disableWorker: true,
+    isEvalSupported: false,
+    useWorkerFetch: false,
+  });
+  const document = await loadingTask.promise;
+  const pages = Math.min(document.numPages || 0, 5);
+  const chunks = [];
+  for (let pageNo = 1; pageNo <= pages; pageNo += 1) {
+    const page = await document.getPage(pageNo);
+    const content = await page.getTextContent({ disableCombineTextItems: false });
+    chunks.push(content.items.map((item) => item.str || "").filter(Boolean).join("\n"));
+  }
+  await document.destroy?.();
+  return chunks.join("\n").replace(/[ \t]+/g, " ").trim().slice(0, 30000);
+}
+
+async function convertHeicToJpeg(buffer) {
+  const mod = await import("heic-convert");
+  const convert = mod.default || mod;
+  const output = await convert({ buffer, format: "JPEG", quality: 0.88 });
+  return Buffer.from(output);
 }
 
 async function getReceiptOcrWorker() {
@@ -1442,16 +1502,22 @@ function dataUrlToBuffer(dataUrl, maxBytes) {
   if (!match) throw new Error("Kvitteringen mangler data.");
   const approxBytes = Math.floor(match[2].length * 0.75);
   if (approxBytes > maxBytes) throw new Error("Kvitteringen er for stor til OCR.");
-  return Buffer.from(match[2], "base64");
+  return { mimeType: String(match[1] || "application/octet-stream").toLowerCase(), buffer: Buffer.from(match[2], "base64") };
 }
 
 function extractReceiptFields(text, fileName = "") {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
   const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const title = receiptTitleFromLines(lines) || String(fileName || "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+  const title = receiptTitleFromLines(lines) || (clean ? receiptTitleFromFileName(fileName) : "");
   const price = receiptTotalFromText(clean);
   const date = receiptDateFromText(clean);
   return { title: title || "", price: Number.isFinite(price) ? price : null, date: date || "" };
+}
+
+function receiptTitleFromFileName(fileName = "") {
+  const title = String(fileName || "").replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+  if (!title || /^img\s*\d+$/i.test(title) || /^image\s*\d*$/i.test(title) || /^scan\s*\d*$/i.test(title)) return "";
+  return title;
 }
 
 function receiptTitleFromLines(lines) {

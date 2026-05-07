@@ -10,6 +10,8 @@
     "node": ">=20"
   },
   "dependencies": {
+    "heic-convert": "^2.1.0",
+    "pdfjs-dist": "^5.7.284",
     "tesseract.js": "^6.0.1"
   }
 }

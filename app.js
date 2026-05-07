@@ -286,6 +286,7 @@ let ui = {
   transactionsPageSize: 75,
   undo: null,
   movingReceiptDraft: null,
+  movingReceiptReading: false,
   movingFormDraft: null,
 };
 
@@ -2022,9 +2023,9 @@ function renderMovingCategoryPanel(summary) {
 
 function renderMovingAddForm() {
   const draft = ui.movingFormDraft || {};
-  const receiptLabel = ui.movingReceiptDraft?.name ? `Kvittering klar: ${ui.movingReceiptDraft.name}` : "Upload kvittering — appen gemmer den og prøver at læse navn/pris fra tekstbaserede kvitteringer.";
-  const receiptImage = ui.movingReceiptDraft?.dataUrl?.startsWith("data:image/") ? ui.movingReceiptDraft.dataUrl : "";
-  const receiptPreview = receiptImage ? `<div class="move-receipt-preview move-wide"><img src="${escapeHtml(receiptImage)}" alt="" /><span><strong>Billede klar</strong><small>Kvitteringsbilledet bliver brugt som billede i overblikket.</small></span></div>` : "";
+  const receiptLabel = ui.movingReceiptReading ? "Læser kvittering … vent med at tilføje, til felterne er udfyldt." : (ui.movingReceiptDraft?.name ? `Kvittering klar: ${ui.movingReceiptDraft.name}` : "Upload kvittering — appen gemmer den og prøver at læse navn/pris fra tekstbaserede kvitteringer.");
+  const receiptImage = ui.movingReceiptDraft ? movingReceiptImage(ui.movingReceiptDraft) : "";
+  const receiptPreview = receiptImage ? `<div class="move-receipt-preview move-wide"><img src="${escapeHtml(receiptImage)}" alt="" /><span><strong>${ui.movingReceiptDraft?.dataUrl?.startsWith("data:image/") ? "Billede klar" : "Kvittering klar"}</strong><small>${ui.movingReceiptDraft?.dataUrl?.startsWith("data:image/") ? "Kvitteringsbilledet bliver brugt som billede i overblikket." : "Dokumentet gemmes på linjen, og tekst/pris bruges hvis de kan læses."}</small></span></div>` : "";
   return `
     <form class="move-add-form panel pad" id="moving-item-form">
       <div class="section-heading clean-heading"><div><h2>Tilføj køb</h2><p>Én linje er nok: ting, pris, udlæg og link.</p></div></div>
@@ -2037,12 +2038,12 @@ function renderMovingAddForm() {
         <label class="field"><span>Status</span><select class="select" name="status">${MOVING_STATUSES.map((status) => option(status.id, status.label, status.id === (draft.status || "bought"))).join("")}</select></label>
         <label class="field move-wide"><span>Link</span><input class="input" name="link" type="url" value="${escapeHtml(draft.link || "")}" placeholder="https://..." /></label>
         <label class="field move-wide"><span>Billede-URL</span><input class="input" name="imageUrl" type="url" value="${escapeHtml(draft.imageUrl || "")}" placeholder="udfyldes fra link hvis muligt" /></label>
-        <label class="field move-wide"><span>Kvittering</span><input class="input" id="moving-receipt-file" name="receipt" type="file" accept="image/*,.pdf,.txt,.html,.htm,text/*,application/pdf" /><small class="helper">${escapeHtml(receiptLabel)}</small></label>
+        <label class="field move-wide"><span>Kvittering</span><input class="input" id="moving-receipt-file" name="receipt" type="file" accept="image/*,.heic,.heif,.pdf,.txt,.html,.htm,text/*,application/pdf" ${ui.movingReceiptReading ? "disabled" : ""} /><small class="helper">${escapeHtml(receiptLabel)}</small></label>
         ${receiptPreview}
       </div>
       <div class="move-form-actions">
-        <button class="button ghost" type="button" data-action="preview-moving-form-link">Hent fra link</button>
-        <button class="button primary" type="submit">Tilføj til overblik</button>
+        <button class="button ghost" type="button" data-action="preview-moving-form-link" ${ui.movingReceiptReading ? "disabled" : ""}>Hent fra link</button>
+        <button class="button primary" type="submit" ${ui.movingReceiptReading ? "disabled" : ""}>${ui.movingReceiptReading ? "Læser kvittering …" : "Tilføj til overblik"}</button>
       </div>
     </form>`;
 }
@@ -2117,9 +2118,23 @@ function renderMovingItemRow(item) {
 function movingItemImage(item) {
   const explicit = String(item.imageUrl || "").trim();
   if (explicit) return explicit;
-  if (item.receipt?.dataUrl && String(item.receipt.type || "").startsWith("image/")) return item.receipt.dataUrl;
+  const receiptImage = movingReceiptImage(item.receipt);
+  if (receiptImage) return receiptImage;
   const link = String(item.link || "").trim();
   return /\.(png|jpe?g|webp|gif|avif|svg)(\?.*)?$/i.test(link) ? link : "";
+}
+
+function movingReceiptImage(receipt) {
+  if (!receipt?.dataUrl) return "";
+  if (/^data:image\/(png|jpe?g|webp|gif|avif|svg\+xml);/i.test(receipt.dataUrl)) return receipt.dataUrl;
+  return receiptDocumentImage(receipt);
+}
+
+function receiptDocumentImage(receipt) {
+  const label = String(receipt?.type || receipt?.name || "PDF").includes("pdf") ? "PDF" : "KVIT";
+  const name = String(receipt?.name || "Kvittering").replace(/\.[^.]+$/, "").slice(0, 18);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#dceee5"/><stop offset="1" stop-color="#f6e7c8"/></linearGradient></defs><rect width="160" height="160" rx="34" fill="url(#g)"/><rect x="44" y="26" width="72" height="94" rx="10" fill="#fffff7" stroke="#007a53" stroke-opacity=".22"/><path d="M94 26v24h22" fill="#e9f5ee"/><text x="80" y="84" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="800" fill="#00573f">${label}</text><text x="80" y="137" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="700" fill="#5f6b63">${escapeHtml(name)}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function looksLikeUrl(value) {
@@ -2227,15 +2242,23 @@ async function previewMovingLinkForItem(id) {
 
 async function previewMovingReceiptForForm(form, file) {
   if (!form || !file) return;
+  ui.movingReceiptReading = true;
+  setMovingFormDraft(form);
+  notify("Læser kvittering …");
+  render();
   try {
     const receipt = await readMovingReceiptFile(file);
     const preview = await previewReceiptWithServer(receipt);
     ui.movingReceiptDraft = receipt;
-    applyReceiptExtractionToForm(form, receipt, preview);
+    applyReceiptExtractionToForm(document.querySelector("#moving-item-form") || form, receipt, preview);
+    ui.movingReceiptReading = false;
     render();
-    notify(preview?.price || preview?.title ? "Kvitteringen er læst, og felterne er udfyldt hvor muligt." : "Kvitteringen er gemt. Jeg kunne ikke læse pris/navn sikkert — ret manuelt hvis nødvendigt.");
+    const detail = [preview?.pdfError, preview?.ocrError].filter(Boolean).join(" ");
+    notify(preview?.price || preview?.title ? "Kvitteringen er læst, og felterne er udfyldt hvor muligt." : `Kvitteringen er gemt, men jeg kunne ikke læse navn/pris sikkert.${detail ? ` ${detail}` : ""}`, preview?.price || preview?.title ? "success" : "danger");
   } catch (error) {
     ui.movingReceiptDraft = null;
+    ui.movingReceiptReading = false;
+    render();
     notify(`Kvitteringen kunne ikke læses: ${error.message}`, "danger");
   }
 }
@@ -2248,6 +2271,7 @@ async function attachReceiptToMovingItem(id, file) {
     notify("Læser kvittering …");
     const receipt = await readMovingReceiptFile(file);
     const preview = await previewReceiptWithServer(receipt);
+    applyReceiptPreviewToReceipt(receipt, preview);
     item.receipt = receipt;
     item.receiptText = preview?.text || receipt.text || "";
     if (preview?.title && (!item.name || /ny ting|kvittering/i.test(item.name))) item.name = preview.title;
@@ -2263,14 +2287,23 @@ async function attachReceiptToMovingItem(id, file) {
 }
 
 function applyReceiptExtractionToForm(form, receipt, preview = null) {
-  const draft = captureMovingFormDraft(form);
+  const draft = form ? captureMovingFormDraft(form) : (ui.movingFormDraft || {});
   const extracted = preview || extractReceiptInfoFromText(receipt.text || "", receipt.name);
-  if (preview?.text && !receipt.text) receipt.text = preview.text;
-  setMovingFormDraft(form, {
+  applyReceiptPreviewToReceipt(receipt, preview);
+  setMovingFormDraftFromDraft(draft, {
     name: draft.name || extracted.title || "",
     price: draft.price || (Number.isFinite(extracted.price) ? formatAmountInput(extracted.price) : ""),
     imageUrl: draft.imageUrl || "",
   });
+}
+
+function applyReceiptPreviewToReceipt(receipt, preview = null) {
+  if (!receipt || !preview) return;
+  if (preview.text && !receipt.text) receipt.text = preview.text;
+  if (preview.imageDataUrl && preview.imageDataUrl.startsWith("data:image/")) {
+    receipt.dataUrl = preview.imageDataUrl;
+    receipt.type = "image/jpeg";
+  }
 }
 
 async function previewReceiptWithServer(receipt) {
@@ -2312,20 +2345,39 @@ function setMovingFormDraft(form, updates = {}) {
   ui.movingFormDraft = { ...captureMovingFormDraft(form), ...updates };
 }
 
+function setMovingFormDraftFromDraft(draft = {}, updates = {}) {
+  ui.movingFormDraft = { ...draft, ...updates };
+}
+
 async function readMovingReceiptFile(file) {
   if (file.size > RECEIPT_MAX_UPLOAD_BYTES) throw new Error("Filen er for stor. Brug helst et billede/PDF under 8 MB.");
   const text = await extractReceiptText(file).catch(() => "");
-  const imageLike = file.type.startsWith("image/");
-  const dataUrl = imageLike ? await compressReceiptImage(file) : await readFileAsDataUrl(file);
+  const imageLike = isReceiptImageFile(file);
+  let dataUrl = "";
+  let type = file.type || guessReceiptType(file.name);
+  if (imageLike) {
+    try {
+      dataUrl = await compressReceiptImage(file);
+      type = "image/jpeg";
+    } catch {
+      dataUrl = await readFileAsDataUrl(file);
+    }
+  } else {
+    dataUrl = await readFileAsDataUrl(file);
+  }
   if (dataUrl.length > RECEIPT_MAX_STORED_CHARS) throw new Error("Kvitteringen er for stor efter komprimering. Tag et mindre screenshot eller gem som JPEG.");
   return normalizeMovingReceipt({
     name: file.name || "kvittering",
-    type: imageLike ? "image/jpeg" : (file.type || guessReceiptType(file.name)),
+    type,
     size: file.size,
     dataUrl,
     text,
     uploadedAt: new Date().toISOString(),
   });
+}
+
+function isReceiptImageFile(file) {
+  return String(file.type || "").startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(String(file.name || ""));
 }
 
 async function extractReceiptText(file) {
@@ -2375,7 +2427,7 @@ function receiptTotalFromText(text) {
 
 function guessReceiptType(name = "") {
   if (/\.pdf$/i.test(name)) return "application/pdf";
-  if (/\.(png|jpe?g|webp|gif)$/i.test(name)) return "image/*";
+  if (/\.(png|jpe?g|webp|gif|bmp|heic|heif)$/i.test(name)) return `image/${name.split(".").pop().toLowerCase().replace("jpg", "jpeg")}`;
   return "application/octet-stream";
 }
 
@@ -2442,6 +2494,10 @@ function updateMovingItemField(id, field, value) {
 }
 
 function addMovingItemFromForm(form) {
+  if (ui.movingReceiptReading) {
+    notify("Vent lige — kvitteringen er stadig ved at blive læst.", "danger");
+    return false;
+  }
   const data = new FormData(form);
   const price = parseAmount(data.get("price"));
   const receipt = ui.movingReceiptDraft ? normalizeMovingReceipt(ui.movingReceiptDraft) : null;
