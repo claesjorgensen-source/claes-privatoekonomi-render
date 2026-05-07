@@ -84,6 +84,11 @@ const DEFAULT_MOVING_PROJECT = {
   items: [],
 };
 
+const RECEIPT_MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+const RECEIPT_MAX_STORED_CHARS = 2_800_000;
+const RECEIPT_IMAGE_MAX_SIDE = 1800;
+const RECEIPT_IMAGE_QUALITY = 0.78;
+
 const RELATION_TYPES = [
   { id: "", label: "Ingen relation" },
   { id: "udlæg", label: "Udlæg / refusion" },
@@ -280,6 +285,8 @@ let ui = {
   transactionsPage: 1,
   transactionsPageSize: 75,
   undo: null,
+  movingReceiptDraft: null,
+  movingFormDraft: null,
 };
 
 init();
@@ -1754,11 +1761,25 @@ function normalizeMovingItem(item = {}) {
     lauraSharePct: clampPercent(Number(item.lauraSharePct ?? 50)),
     link: String(item.link || ""),
     imageUrl: String(item.imageUrl || ""),
+    receipt: normalizeMovingReceipt(item.receipt),
+    receiptText: String(item.receiptText || item.receipt?.text || ""),
     status: statusIds.has(item.status) ? item.status : "bought",
     note: String(item.note || ""),
     date: isIsoDate(item.date) ? item.date : "",
     createdAt: item.createdAt || new Date().toISOString(),
     updatedAt: item.updatedAt || "",
+  };
+}
+
+function normalizeMovingReceipt(receipt = null) {
+  if (!receipt || typeof receipt !== "object") return null;
+  return {
+    name: String(receipt.name || "Kvittering"),
+    type: String(receipt.type || "application/octet-stream"),
+    size: Number(receipt.size || 0) || 0,
+    dataUrl: String(receipt.dataUrl || ""),
+    text: String(receipt.text || "").slice(0, 20000),
+    uploadedAt: receipt.uploadedAt || new Date().toISOString(),
   };
 }
 
@@ -2000,18 +2021,21 @@ function renderMovingCategoryPanel(summary) {
 }
 
 function renderMovingAddForm() {
+  const draft = ui.movingFormDraft || {};
+  const receiptLabel = ui.movingReceiptDraft?.name ? `Kvittering klar: ${ui.movingReceiptDraft.name}` : "Upload kvittering — appen gemmer den og prøver at læse navn/pris fra tekstbaserede kvitteringer.";
   return `
     <form class="move-add-form panel pad" id="moving-item-form">
       <div class="section-heading clean-heading"><div><h2>Tilføj køb</h2><p>Én linje er nok: ting, pris, udlæg og link.</p></div></div>
       <div class="move-add-grid">
-        <label class="field"><span>Ting</span><input class="input" name="name" placeholder="fx spisebord" required /></label>
-        <label class="field"><span>Pris</span><input class="input" name="price" inputmode="decimal" placeholder="12.500" ${privacyInputAttrs()} /></label>
-        <label class="field"><span>Kategori</span><select class="select" name="category">${MOVING_CATEGORIES.map((category) => option(category.id, category.label, category.id === "moebler")).join("")}</select></label>
-        <label class="field"><span>Lagt ud af</span><select class="select" name="paidBy">${MOVING_PAYERS.map((payer) => option(payer.id, payer.label, payer.id === "claes")).join("")}</select></label>
-        <label class="field"><span>Fordeling</span><select class="select" name="split">${MOVING_SPLITS.map((split) => option(split.id, split.label, split.id === "shared")).join("")}</select></label>
-        <label class="field"><span>Status</span><select class="select" name="status">${MOVING_STATUSES.map((status) => option(status.id, status.label, status.id === "bought")).join("")}</select></label>
-        <label class="field move-wide"><span>Link</span><input class="input" name="link" type="url" placeholder="https://..." /></label>
-        <label class="field move-wide"><span>Billede-URL</span><input class="input" name="imageUrl" type="url" placeholder="udfyldes fra link hvis muligt" /></label>
+        <label class="field"><span>Ting</span><input class="input" name="name" value="${escapeHtml(draft.name || "")}" placeholder="fx spisebord" required /></label>
+        <label class="field"><span>Pris</span><input class="input" name="price" inputmode="decimal" value="${escapeHtml(draft.price || "")}" placeholder="12.500" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Kategori</span><select class="select" name="category">${MOVING_CATEGORIES.map((category) => option(category.id, category.label, category.id === (draft.category || "moebler"))).join("")}</select></label>
+        <label class="field"><span>Lagt ud af</span><select class="select" name="paidBy">${MOVING_PAYERS.map((payer) => option(payer.id, payer.label, payer.id === (draft.paidBy || "claes"))).join("")}</select></label>
+        <label class="field"><span>Fordeling</span><select class="select" name="split">${MOVING_SPLITS.map((split) => option(split.id, split.label, split.id === (draft.split || "shared"))).join("")}</select></label>
+        <label class="field"><span>Status</span><select class="select" name="status">${MOVING_STATUSES.map((status) => option(status.id, status.label, status.id === (draft.status || "bought"))).join("")}</select></label>
+        <label class="field move-wide"><span>Link</span><input class="input" name="link" type="url" value="${escapeHtml(draft.link || "")}" placeholder="https://..." /></label>
+        <label class="field move-wide"><span>Billede-URL</span><input class="input" name="imageUrl" type="url" value="${escapeHtml(draft.imageUrl || "")}" placeholder="udfyldes fra link hvis muligt" /></label>
+        <label class="field move-wide"><span>Kvittering</span><input class="input" id="moving-receipt-file" name="receipt" type="file" accept="image/*,.pdf,.txt,.html,.htm,text/*,application/pdf" /><small class="helper">${escapeHtml(receiptLabel)}</small></label>
       </div>
       <div class="move-form-actions">
         <button class="button ghost" type="button" data-action="preview-moving-form-link">Hent fra link</button>
@@ -2071,6 +2095,11 @@ function renderMovingItemRow(item) {
             ${item.link ? `<button class="link-button" type="button" data-action="preview-moving-item-link" data-id="${escapeHtml(item.id)}">Hent</button><a href="${escapeHtml(item.link)}" target="_blank" rel="noreferrer">Åbn</a>` : ""}
           </div>
           <input class="move-line-input muted" data-moving-item="${escapeHtml(item.id)}" data-moving-field="imageUrl" value="${escapeHtml(item.imageUrl)}" placeholder="Billede-URL" />
+          <div class="move-receipt-line">
+            <label class="receipt-upload"><input type="file" data-moving-receipt="${escapeHtml(item.id)}" accept="image/*,.pdf,.txt,.html,.htm,text/*,application/pdf" />Upload kvittering</label>
+            ${item.receipt?.dataUrl ? `<a href="${escapeHtml(item.receipt.dataUrl)}" download="${escapeHtml(item.receipt.name || "kvittering")}">Kvittering</a>` : `<span>Ingen kvittering</span>`}
+            ${item.receipt?.name ? `<small>${escapeHtml(item.receipt.name)}</small>` : ""}
+          </div>
           ${custom ? `<div class="move-custom-split"><label>Claes %<input class="input" inputmode="decimal" data-moving-item="${escapeHtml(item.id)}" data-moving-field="claesSharePct" value="${escapeHtml(formatNumber(item.claesSharePct))}" /></label><label>Laura %<input class="input" inputmode="decimal" data-moving-item="${escapeHtml(item.id)}" data-moving-field="lauraSharePct" value="${escapeHtml(formatNumber(item.lauraSharePct))}" /></label></div>` : ""}
         </div>
       </div>
@@ -2085,6 +2114,7 @@ function renderMovingItemRow(item) {
 function movingItemImage(item) {
   const explicit = String(item.imageUrl || "").trim();
   if (explicit) return explicit;
+  if (item.receipt?.dataUrl && String(item.receipt.type || "").startsWith("image/")) return item.receipt.dataUrl;
   const link = String(item.link || "").trim();
   return /\.(png|jpe?g|webp|gif|avif|svg)(\?.*)?$/i.test(link) ? link : "";
 }
@@ -2149,21 +2179,20 @@ async function fetchLinkPreview(url) {
 
 async function previewMovingLinkForForm(form, { silent = false } = {}) {
   if (!form) return;
-  const linkInput = form.querySelector('input[name="link"]');
-  const url = linkInput?.value?.trim() || "";
+  const draft = captureMovingFormDraft(form);
+  const url = draft.link || "";
   if (!looksLikeUrl(url)) {
     if (!silent) notify("Indsæt et link først.", "danger");
     return;
   }
   try {
-    if (!silent) notify("Henter titel og billede fra linket …");
     const preview = await fetchLinkPreview(url);
-    const nameInput = form.querySelector('input[name="name"]');
-    const imageInput = form.querySelector('input[name="imageUrl"]');
-    const priceInput = form.querySelector('input[name="price"]');
-    if (preview.title && nameInput && !nameInput.value.trim()) nameInput.value = preview.title;
-    if (preview.imageUrl && imageInput && !imageInput.value.trim()) imageInput.value = preview.imageUrl;
-    if (preview.price && priceInput && !priceInput.value.trim()) priceInput.value = formatAmountInput(preview.price);
+    setMovingFormDraft(form, {
+      name: draft.name || preview.title || "",
+      imageUrl: draft.imageUrl || preview.imageUrl || "",
+      price: draft.price || (preview.price ? formatAmountInput(preview.price) : ""),
+    });
+    render();
     notify(preview.title || preview.imageUrl ? "Linket er læst ind. Ret evt. pris og fordeling før du tilføjer." : "Jeg kunne hente linket, men fandt ikke titel/billede.");
   } catch (error) {
     if (!silent) notify(`Kunne ikke hente fra link: ${error.message}`, "danger");
@@ -2191,6 +2220,170 @@ async function previewMovingLinkForItem(id) {
     notify(`Kunne ikke hente fra link: ${error.message}`, "danger");
   }
 }
+
+
+async function previewMovingReceiptForForm(form, file) {
+  if (!form || !file) return;
+  try {
+    const receipt = await readMovingReceiptFile(file);
+    ui.movingReceiptDraft = receipt;
+    applyReceiptExtractionToForm(form, receipt);
+    render();
+    notify(receipt.text ? "Kvitteringen er gemt og felter er udfyldt hvor muligt." : "Kvitteringen er gemt. Billedkvitteringer gemmes som dokumentation; udfyld pris hvis den ikke kan læses.");
+  } catch (error) {
+    ui.movingReceiptDraft = null;
+    notify(`Kvitteringen kunne ikke læses: ${error.message}`, "danger");
+  }
+}
+
+async function attachReceiptToMovingItem(id, file) {
+  const project = getMovingProject();
+  const item = project.items.find((row) => row.id === id);
+  if (!item || !file) return;
+  try {
+    notify("Læser kvittering …");
+    const receipt = await readMovingReceiptFile(file);
+    item.receipt = receipt;
+    item.receiptText = receipt.text || "";
+    const extracted = extractReceiptInfoFromText(receipt.text || "", receipt.name);
+    if (extracted.title && (!item.name || /ny ting|kvittering/i.test(item.name))) item.name = extracted.title;
+    if (Number.isFinite(extracted.price) && !item.price) item.price = extracted.price;
+    item.updatedAt = new Date().toISOString();
+    saveState();
+    render();
+    notify(receipt.text ? "Kvitteringen blev gemt, og linjen blev opdateret hvor muligt." : "Kvitteringen blev gemt på linjen.");
+  } catch (error) {
+    notify(`Kvitteringen kunne ikke læses: ${error.message}`, "danger");
+    render();
+  }
+}
+
+function applyReceiptExtractionToForm(form, receipt) {
+  const draft = captureMovingFormDraft(form);
+  const extracted = extractReceiptInfoFromText(receipt.text || "", receipt.name);
+  setMovingFormDraft(form, {
+    name: draft.name || extracted.title || "",
+    price: draft.price || (Number.isFinite(extracted.price) ? formatAmountInput(extracted.price) : ""),
+    imageUrl: draft.imageUrl || "",
+  });
+}
+
+function captureMovingFormDraft(form) {
+  const data = new FormData(form);
+  return {
+    name: String(data.get("name") || "").trim(),
+    price: String(data.get("price") || "").trim(),
+    category: String(data.get("category") || "moebler"),
+    paidBy: String(data.get("paidBy") || "claes"),
+    split: String(data.get("split") || "shared"),
+    status: String(data.get("status") || "bought"),
+    link: String(data.get("link") || "").trim(),
+    imageUrl: String(data.get("imageUrl") || "").trim(),
+  };
+}
+
+function setMovingFormDraft(form, updates = {}) {
+  ui.movingFormDraft = { ...captureMovingFormDraft(form), ...updates };
+}
+
+async function readMovingReceiptFile(file) {
+  if (file.size > RECEIPT_MAX_UPLOAD_BYTES) throw new Error("Filen er for stor. Brug helst et billede/PDF under 8 MB.");
+  const text = await extractReceiptText(file).catch(() => "");
+  const dataUrl = file.type.startsWith("image/") ? await compressReceiptImage(file) : await readFileAsDataUrl(file);
+  if (dataUrl.length > RECEIPT_MAX_STORED_CHARS) throw new Error("Kvitteringen er for stor efter komprimering. Tag et mindre screenshot eller gem som JPEG.");
+  return normalizeMovingReceipt({
+    name: file.name || "kvittering",
+    type: file.type || guessReceiptType(file.name),
+    size: file.size,
+    dataUrl,
+    text,
+    uploadedAt: new Date().toISOString(),
+  });
+}
+
+async function extractReceiptText(file) {
+  const name = String(file.name || "").toLowerCase();
+  if (file.type.startsWith("text/") || /\.(txt|csv|html?|md)$/i.test(name)) return (await file.text()).slice(0, 20000);
+  if (file.type === "application/pdf" || /\.pdf$/i.test(name)) return extractTextFromPdfBytes(await file.arrayBuffer()).slice(0, 20000);
+  return "";
+}
+
+function extractTextFromPdfBytes(buffer) {
+  const raw = new TextDecoder("latin1").decode(new Uint8Array(buffer));
+  const chunks = [];
+  for (const match of raw.matchAll(/\((?:\\.|[^\\)])*\)\s*Tj/g)) chunks.push(unescapePdfString(match[0].replace(/\)\s*Tj$/, "").slice(1)));
+  for (const match of raw.matchAll(/\[((?:\s*\((?:\\.|[^\\)])*\)\s*)+)\]\s*TJ/g)) {
+    for (const part of match[1].matchAll(/\((?:\\.|[^\\)])*\)/g)) chunks.push(unescapePdfString(part[0].slice(1, -1)));
+  }
+  return chunks.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function unescapePdfString(value) {
+  return String(value || "").replace(/\\([nrtbf()\\])/g, (_, char) => ({ n: "\n", r: "\r", t: "\t", b: "", f: "", "(": "(", ")": ")", "\\": "\\" }[char] ?? char));
+}
+
+function extractReceiptInfoFromText(text, fileName = "") {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  const lines = String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const title = receiptTitleFromLines(lines) || fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ");
+  const price = receiptTotalFromText(clean);
+  return { title: clean ? title : title || "", price };
+}
+
+function receiptTitleFromLines(lines) {
+  return lines.find((line) => line.length >= 3 && line.length <= 80 && !/kvittering|receipt|faktura|invoice|total|moms|betaling|dato/i.test(line)) || "";
+}
+
+function receiptTotalFromText(text) {
+  const candidates = [];
+  const labelled = /(total|i alt|beløb|betalt|amount|sum|ordre total|ordretotal)[^0-9-]{0,28}(-?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})?|-?\d+(?:,\d{2})?)/gi;
+  for (const match of text.matchAll(labelled)) {
+    const amount = parseAmount(match[2]);
+    if (Number.isFinite(amount)) candidates.push(Math.abs(amount));
+  }
+  if (candidates.length) return candidates.at(-1);
+  const amounts = Array.from(text.matchAll(/\b\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})\b|\b\d+(?:,\d{2})\b/g)).map((match) => Math.abs(parseAmount(match[0]))).filter((amount) => Number.isFinite(amount) && amount > 0 && amount < 1_000_000);
+  return amounts.length ? Math.max(...amounts) : NaN;
+}
+
+function guessReceiptType(name = "") {
+  if (/\.pdf$/i.test(name)) return "application/pdf";
+  if (/\.(png|jpe?g|webp|gif)$/i.test(name)) return "image/*";
+  return "application/octet-stream";
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Filen kunne ikke læses."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function compressReceiptImage(file) {
+  const source = await readFileAsDataUrl(file);
+  const image = await loadImageForReceipt(source);
+  const scale = Math.min(1, RECEIPT_IMAGE_MAX_SIDE / Math.max(image.width || 1, image.height || 1));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round((image.width || 1) * scale));
+  canvas.height = Math.max(1, Math.round((image.height || 1) * scale));
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", RECEIPT_IMAGE_QUALITY);
+}
+
+function loadImageForReceipt(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Billedet kunne ikke læses."));
+    image.src = src;
+  });
+}
+
 
 function updateMovingItemField(id, field, value) {
   const project = getMovingProject();
@@ -2224,6 +2417,7 @@ function updateMovingItemField(id, field, value) {
 function addMovingItemFromForm(form) {
   const data = new FormData(form);
   const price = parseAmount(data.get("price"));
+  const receipt = ui.movingReceiptDraft ? normalizeMovingReceipt(ui.movingReceiptDraft) : null;
   const item = normalizeMovingItem({
     id: uid("move"),
     name: String(data.get("name") || "").trim(),
@@ -2234,11 +2428,15 @@ function addMovingItemFromForm(form) {
     status: String(data.get("status") || "bought"),
     link: String(data.get("link") || "").trim(),
     imageUrl: String(data.get("imageUrl") || "").trim(),
+    receipt,
+    receiptText: receipt?.text || "",
     createdAt: new Date().toISOString(),
   });
   if (!item?.name) return false;
   const project = getMovingProject();
   project.items.unshift(item);
+  ui.movingReceiptDraft = null;
+  ui.movingFormDraft = null;
   return true;
 }
 
@@ -5424,8 +5622,18 @@ async function handleSubmit(event) {
   }
 }
 
-function handleChange(event) {
+async function handleChange(event) {
   const target = event.target;
+
+  if (target.id === "moving-receipt-file" && target.files?.[0]) {
+    await previewMovingReceiptForForm(target.closest("form"), target.files[0]);
+    return;
+  }
+
+  if (target.dataset.movingReceipt && target.files?.[0]) {
+    await attachReceiptToMovingItem(target.dataset.movingReceipt, target.files[0]);
+    return;
+  }
 
   if (target.name === "link" && target.closest("#moving-item-form") && looksLikeUrl(target.value)) {
     previewMovingLinkForForm(target.closest("form"), { silent: true });

@@ -3758,6 +3758,41 @@ button.list-row,
   font-size: 0.82rem;
 }
 
+.move-receipt-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.move-receipt-line a,
+.receipt-upload {
+  color: var(--accent-strong);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.receipt-upload {
+  cursor: pointer;
+}
+
+.receipt-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.move-receipt-line small {
+  overflow: hidden;
+  max-width: 180px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .move-item-price small {
   color: var(--muted);
   font-weight: 800;
@@ -3997,7 +4032,8 @@ button.list-row,
 
   .move-form-actions,
   .totalkredit-links,
-  .tk-rate-head {
+  .tk-rate-head,
+  .move-receipt-line {
     align-items: stretch;
     flex-direction: column;
   }
