@@ -3425,6 +3425,91 @@ button.list-row,
   font-style: normal;
 }
 
+.move-financing-panel {
+  margin-top: 14px;
+  border: 1px solid rgba(0, 122, 83, 0.14);
+  border-radius: 26px;
+  padding: 16px;
+  background: rgba(237, 246, 233, 0.68);
+  display: grid;
+  gap: 14px;
+}
+
+.move-financing-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.move-financing-head span,
+.move-finance-cell span {
+  display: block;
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 920;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.move-financing-head strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 1.18rem;
+  letter-spacing: -0.04em;
+}
+
+.move-financing-head small,
+.move-finance-cell small,
+.move-finance-details {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 760;
+}
+
+.move-financing-head em {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(0, 122, 83, 0.1);
+  color: var(--accent-strong);
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.move-financing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.move-finance-cell {
+  border: 1px solid rgba(16, 35, 29, 0.08);
+  border-radius: 18px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  display: grid;
+  gap: 4px;
+}
+
+.move-finance-cell strong {
+  font-size: 1.08rem;
+  letter-spacing: -0.045em;
+}
+
+.move-finance-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.move-finance-details span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(16, 35, 29, 0.08);
+}
+
 .tk-rate-tracker {
   margin-top: 16px;
   border: 1px solid var(--line);
@@ -4229,6 +4314,7 @@ button.list-row,
   .move-hero,
   .move-layout,
   .move-kpi-grid,
+  .move-financing-grid,
   .move-insight-grid,
   .move-items-head,
   .move-item-row {
@@ -4330,6 +4416,7 @@ button.list-row,
   }
 
   .move-form-actions,
+  .move-financing-head,
   .totalkredit-links,
   .tk-rate-head,
   .move-receipt-line {

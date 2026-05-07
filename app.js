@@ -73,6 +73,19 @@ const DEFAULT_MOVING_PROJECT = {
   accessDate: "2026-07-01",
   loanDeadlineDaysBefore: 14,
   loanChoice: "pending",
+  purchasePrice: 0,
+  downPayment: 0,
+  loanNeed: 0,
+  loanPrincipal: 0,
+  monthlyPaymentBeforeTax: 0,
+  monthlyPaymentAfterTax: 0,
+  bidragRate: 0,
+  aopBeforeTax: 0,
+  loanCosts: 0,
+  courseValue: 0,
+  payoutAmount: 0,
+  interestOnlyUntil: "",
+  loanScenarioName: "",
   loanAmount: 0,
   fixedRateCoupon: 4,
   fixedRateCourse: 0,
@@ -1733,6 +1746,19 @@ function normalizeMovingProject(project = {}) {
     accessDate: isIsoDate(source.accessDate) ? source.accessDate : DEFAULT_MOVING_PROJECT.accessDate,
     loanDeadlineDaysBefore: Math.max(0, Number(source.loanDeadlineDaysBefore ?? DEFAULT_MOVING_PROJECT.loanDeadlineDaysBefore) || 0),
     loanChoice: ["pending", "fixed", "fkort"].includes(source.loanChoice) ? source.loanChoice : "pending",
+    purchasePrice: Math.max(0, Number(source.purchasePrice || 0) || 0),
+    downPayment: Math.max(0, Number(source.downPayment || 0) || 0),
+    loanNeed: Math.max(0, Number(source.loanNeed || 0) || 0),
+    loanPrincipal: Math.max(0, Number(source.loanPrincipal || 0) || 0),
+    monthlyPaymentBeforeTax: Math.max(0, Number(source.monthlyPaymentBeforeTax || 0) || 0),
+    monthlyPaymentAfterTax: Math.max(0, Number(source.monthlyPaymentAfterTax || 0) || 0),
+    bidragRate: Math.max(0, Number(source.bidragRate || 0) || 0),
+    aopBeforeTax: Math.max(0, Number(source.aopBeforeTax || 0) || 0),
+    loanCosts: Math.max(0, Number(source.loanCosts || 0) || 0),
+    courseValue: Math.max(0, Number(source.courseValue || 0) || 0),
+    payoutAmount: Math.max(0, Number(source.payoutAmount || 0) || 0),
+    interestOnlyUntil: String(source.interestOnlyUntil || ""),
+    loanScenarioName: String(source.loanScenarioName || ""),
     loanAmount: Math.max(0, Number(source.loanAmount || 0) || 0),
     fixedRateCoupon: Math.max(0, Number(source.fixedRateCoupon || DEFAULT_MOVING_PROJECT.fixedRateCoupon) || 0),
     fixedRateCourse: Math.max(0, Number(source.fixedRateCourse || 0) || 0),
@@ -1822,6 +1848,26 @@ function movingSplitShares(item) {
   return { claes: 0, laura: 0, undecided: amount };
 }
 
+function getMovingFinancing(project = getMovingProject()) {
+  const purchasePrice = Number(project.purchasePrice || 0);
+  const downPayment = Number(project.downPayment || 0);
+  const rawLoanNeed = Math.max(0, purchasePrice - downPayment);
+  const loanNeed = Number(project.loanNeed || 0) || rawLoanNeed;
+  const loanPrincipal = Number(project.loanPrincipal || 0) || Number(project.loanAmount || 0) || loanNeed;
+  const course = Number(project.fixedRateCourse || 0);
+  const courseValue = Number(project.courseValue || 0) || (loanPrincipal && course ? loanPrincipal * course / 100 : 0);
+  const payoutAmount = Number(project.payoutAmount || 0) || loanNeed;
+  const courseLoss = loanPrincipal && course ? loanPrincipal * Math.max(0, 100 - course) / 100 : 0;
+  const financingCosts = Math.max(0, loanNeed - rawLoanNeed);
+  const loanToValue = purchasePrice ? loanPrincipal / purchasePrice : 0;
+  const cashShare = purchasePrice ? downPayment / purchasePrice : 0;
+  const monthlyBeforeTax = Number(project.monthlyPaymentBeforeTax || 0);
+  const monthlyAfterTax = Number(project.monthlyPaymentAfterTax || 0);
+  const yearlyBeforeTax = monthlyBeforeTax * 12;
+  const yearlyAfterTax = monthlyAfterTax * 12;
+  return { purchasePrice, downPayment, rawLoanNeed, loanNeed, loanPrincipal, course, courseValue, payoutAmount, courseLoss, financingCosts, loanToValue, cashShare, monthlyBeforeTax, monthlyAfterTax, yearlyBeforeTax, yearlyAfterTax };
+}
+
 function getMovingSummary(project = getMovingProject()) {
   const items = project.items || [];
   const total = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
@@ -1848,8 +1894,9 @@ function getMovingSummary(project = getMovingProject()) {
     const amount = rows.reduce((sum, item) => sum + Number(item.price || 0), 0);
     return { category, amount, count: rows.length, share: total ? amount / total : 0 };
   }).filter((row) => row.amount || row.count);
-  const fixedCourseLoss = project.loanAmount && project.fixedRateCourse ? project.loanAmount * Math.max(0, 100 - project.fixedRateCourse) / 100 : 0;
-  return { total, committed, planned, paidClaes, paidLaura, jointPaid, unpaid, settlementNet, claesShare, lauraShare, undecidedShare, byCategory, fixedCourseLoss, itemCount: items.length };
+  const financing = getMovingFinancing(project);
+  const fixedCourseLoss = financing.courseLoss;
+  return { total, committed, planned, paidClaes, paidLaura, jointPaid, unpaid, settlementNet, claesShare, lauraShare, undecidedShare, byCategory, fixedCourseLoss, financing, itemCount: items.length };
 }
 
 function renderMovingProjectView() {
@@ -1921,9 +1968,49 @@ function movingLoanChoiceLabel(project) {
   return "Afventer kurs";
 }
 
+function renderMovingFinancingPanel(project, financing = getMovingFinancing(project)) {
+  const hasPurchase = Boolean(financing.purchasePrice && financing.downPayment);
+  if (!hasPurchase && !financing.loanPrincipal && !financing.monthlyBeforeTax) return "";
+  const scenario = project.loanScenarioName || (financing.downPayment ? `${formatCurrency(financing.downPayment)} egenbetaling` : "Finansiering");
+  const extraNeed = financing.financingCosts;
+  const beforeAfter = financing.monthlyBeforeTax || financing.monthlyAfterTax
+    ? `${financing.monthlyBeforeTax ? `${formatCurrency(financing.monthlyBeforeTax)} før skat` : "— før skat"} · ${financing.monthlyAfterTax ? `${formatCurrency(financing.monthlyAfterTax)} efter skat` : "— efter skat"}`
+    : "Tilføj ydelse fra bankens tilbud";
+  return `
+    <div class="move-financing-panel">
+      <div class="move-financing-head">
+        <div><span>Valgt scenarie</span><strong>${escapeHtml(scenario)}</strong><small>${beforeAfter}</small></div>
+        <em>${financing.loanToValue ? `${formatPercent(financing.loanToValue)} belåning` : "Belåning —"}</em>
+      </div>
+      <div class="move-financing-grid">
+        ${renderMovingFinanceCell("Købspris", financing.purchasePrice, "Solvej 4")}
+        ${renderMovingFinanceCell("Egenbetaling", financing.downPayment, financing.cashShare ? `${formatPercent(financing.cashShare)} af købspris` : "")}
+        ${renderMovingFinanceCell("Rest før omkostninger", financing.rawLoanNeed, "Købspris minus egenbetaling")}
+        ${renderMovingFinanceCell("Lånebehov", financing.loanNeed, extraNeed ? `+${formatCurrency(extraNeed)} ift. ren rest` : "Samme som rest")}
+        ${renderMovingFinanceCell("Hovedstol", financing.loanPrincipal, project.fixedRateCourse ? `kurs ${formatNumber(project.fixedRateCourse)}` : "Udfyld kurs")}
+        ${renderMovingFinanceCell("Kursværdi", financing.courseValue, financing.courseLoss ? `${formatCurrency(financing.courseLoss)} kursfradrag` : "")}
+      </div>
+      <div class="move-finance-details">
+        ${project.bidragRate ? `<span>Bidrag ${formatNumber(project.bidragRate)}%</span>` : ""}
+        ${project.aopBeforeTax ? `<span>ÅOP før skat ${formatNumber(project.aopBeforeTax)}%</span>` : ""}
+        ${project.loanCosts ? `<span>Omkostninger ${formatCurrency(project.loanCosts)}</span>` : ""}
+        ${project.interestOnlyUntil ? `<span>Afdragsfri til ${escapeHtml(formatDate(project.interestOnlyUntil))}</span>` : ""}
+      </div>
+    </div>`;
+}
+
+function renderMovingFinanceCell(label, value, helper = "") {
+  return `
+    <div class="move-finance-cell">
+      <span>${escapeHtml(label)}</span>
+      <strong>${value ? formatCurrency(value) : "—"}</strong>
+      <small>${escapeHtml(helper || "")}</small>
+    </div>`;
+}
+
 function renderMovingLoanPanel(project, summary) {
   const fixedReady = Boolean(project.fixedRateCourse && project.fixedRateCourseTarget && project.fixedRateCourse >= project.fixedRateCourseTarget);
-  const loanAmount = Number(project.loanAmount || 0);
+  const financing = summary.financing || getMovingFinancing(project);
   return `
     <article class="move-loan-panel panel pad">
       <div class="section-heading clean-heading">
@@ -1935,7 +2022,7 @@ function renderMovingLoanPanel(project, summary) {
           <span>Mulighed A</span>
           <strong>Fast ${formatNumber(project.fixedRateCoupon)}% · 10 års afdragsfrihed</strong>
           <small>Kurs ${project.fixedRateCourse ? formatNumber(project.fixedRateCourse) : "—"} · mål ${project.fixedRateCourseTarget ? formatNumber(project.fixedRateCourseTarget) : "—"}</small>
-          <em>${loanAmount && project.fixedRateCourse ? `${formatCurrency(summary.fixedCourseLoss)} kursfradrag` : "Udfyld lånebeløb + kurs"}</em>
+          <em>${financing.loanPrincipal && project.fixedRateCourse ? `${formatCurrency(summary.fixedCourseLoss)} kursfradrag` : "Udfyld hovedstol + kurs"}</em>
         </div>
         <div class="loan-route ${project.loanChoice === "fkort" ? "active" : ""}">
           <span>Mulighed B</span>
@@ -1944,6 +2031,7 @@ function renderMovingLoanPanel(project, summary) {
           <em>Fallback hvis fast kurs ikke er attraktiv</em>
         </div>
       </div>
+      ${renderMovingFinancingPanel(project, financing)}
       ${renderTotalkreditRateTracker(project, summary)}
       <div class="totalkredit-links" aria-label="Totalkredit links">
         ${TOTALKREDIT_LINKS.map((link) => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noreferrer">${escapeHtml(link.label)}</a>`).join("")}
@@ -2272,10 +2360,22 @@ function renderMovingSettingsForm(project) {
         <label class="field"><span>Til</span><input class="input" name="newAddress" value="${escapeHtml(project.newAddress)}" /></label>
         <label class="field"><span>Overtagelse</span><input class="input" type="date" name="accessDate" value="${escapeHtml(project.accessDate)}" /></label>
         <label class="field"><span>Lån dage før</span><input class="input" inputmode="numeric" name="loanDeadlineDaysBefore" value="${escapeHtml(String(project.loanDeadlineDaysBefore))}" /></label>
-        <label class="field"><span>Lånebeløb</span><input class="input" inputmode="decimal" name="loanAmount" value="${escapeHtml(project.loanAmount ? formatAmountInput(project.loanAmount) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Scenarie</span><input class="input" name="loanScenarioName" value="${escapeHtml(project.loanScenarioName || "")}" placeholder="fx 3,8 mio. egenbetaling" /></label>
+        <label class="field"><span>Købspris</span><input class="input" inputmode="decimal" name="purchasePrice" value="${escapeHtml(project.purchasePrice ? formatAmountInput(project.purchasePrice) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Egenbetaling</span><input class="input" inputmode="decimal" name="downPayment" value="${escapeHtml(project.downPayment ? formatAmountInput(project.downPayment) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Lånebehov</span><input class="input" inputmode="decimal" name="loanNeed" value="${escapeHtml(project.loanNeed ? formatAmountInput(project.loanNeed) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Hovedstol</span><input class="input" inputmode="decimal" name="loanPrincipal" value="${escapeHtml(project.loanPrincipal ? formatAmountInput(project.loanPrincipal) : (project.loanAmount ? formatAmountInput(project.loanAmount) : ""))}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Ydelse før skat</span><input class="input" inputmode="decimal" name="monthlyPaymentBeforeTax" value="${escapeHtml(project.monthlyPaymentBeforeTax ? formatAmountInput(project.monthlyPaymentBeforeTax) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Ydelse efter skat</span><input class="input" inputmode="decimal" name="monthlyPaymentAfterTax" value="${escapeHtml(project.monthlyPaymentAfterTax ? formatAmountInput(project.monthlyPaymentAfterTax) : "")}" ${privacyInputAttrs()} /></label>
         <label class="field"><span>Fast kupon %</span><input class="input" inputmode="decimal" name="fixedRateCoupon" value="${escapeHtml(formatNumber(project.fixedRateCoupon))}" /></label>
         <label class="field"><span>Fast kurs</span><input class="input" inputmode="decimal" name="fixedRateCourse" value="${escapeHtml(project.fixedRateCourse ? formatNumber(project.fixedRateCourse) : "")}" /></label>
         <label class="field"><span>Kursmål</span><input class="input" inputmode="decimal" name="fixedRateCourseTarget" value="${escapeHtml(formatNumber(project.fixedRateCourseTarget))}" /></label>
+        <label class="field"><span>Bidrag %</span><input class="input" inputmode="decimal" name="bidragRate" value="${escapeHtml(project.bidragRate ? formatNumber(project.bidragRate) : "")}" /></label>
+        <label class="field"><span>ÅOP før skat %</span><input class="input" inputmode="decimal" name="aopBeforeTax" value="${escapeHtml(project.aopBeforeTax ? formatNumber(project.aopBeforeTax) : "")}" /></label>
+        <label class="field"><span>Låneomk.</span><input class="input" inputmode="decimal" name="loanCosts" value="${escapeHtml(project.loanCosts ? formatAmountInput(project.loanCosts) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Kursværdi</span><input class="input" inputmode="decimal" name="courseValue" value="${escapeHtml(project.courseValue ? formatAmountInput(project.courseValue) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Udbetaling</span><input class="input" inputmode="decimal" name="payoutAmount" value="${escapeHtml(project.payoutAmount ? formatAmountInput(project.payoutAmount) : "")}" ${privacyInputAttrs()} /></label>
+        <label class="field"><span>Afdragsfri til</span><input class="input" type="date" name="interestOnlyUntil" value="${escapeHtml(isIsoDate(project.interestOnlyUntil) ? project.interestOnlyUntil : "")}" /></label>
         <label class="field"><span>F-kort rente %</span><input class="input" inputmode="decimal" name="fkortRate" value="${escapeHtml(project.fkortRate ? formatNumber(project.fkortRate) : "")}" /></label>
         <label class="field"><span>Valg</span><select class="select" name="loanChoice">${option("pending", "Afventer", project.loanChoice === "pending")}${option("fixed", "Fast 4%", project.loanChoice === "fixed")}${option("fkort", "F-kort", project.loanChoice === "fkort")}</select></label>
         <button class="button primary move-wide" type="submit">Gem rammer</button>
@@ -2820,14 +2920,24 @@ function updateMovingSettingsFromForm(form) {
   const accessDate = String(data.get("accessDate") || "");
   if (isIsoDate(accessDate)) project.accessDate = accessDate;
   project.loanDeadlineDaysBefore = Math.max(0, Number(data.get("loanDeadlineDaysBefore") || 0) || 0);
-  const loanAmount = parseAmount(data.get("loanAmount"));
-  if (Number.isFinite(loanAmount)) project.loanAmount = Math.max(0, loanAmount);
+  project.loanScenarioName = String(data.get("loanScenarioName") || "").trim();
+  for (const field of ["purchasePrice", "downPayment", "loanNeed", "loanPrincipal", "monthlyPaymentBeforeTax", "monthlyPaymentAfterTax", "loanCosts", "courseValue", "payoutAmount"]) {
+    const amount = parseAmount(data.get(field));
+    project[field] = Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  }
+  project.loanAmount = project.loanPrincipal || project.loanNeed || 0;
   const fixedRateCoupon = parseAmount(data.get("fixedRateCoupon"));
   if (Number.isFinite(fixedRateCoupon)) project.fixedRateCoupon = Math.max(0, fixedRateCoupon);
   const fixedRateCourse = parseAmount(data.get("fixedRateCourse"));
   project.fixedRateCourse = Number.isFinite(fixedRateCourse) ? Math.max(0, fixedRateCourse) : 0;
   const fixedRateCourseTarget = parseAmount(data.get("fixedRateCourseTarget"));
   if (Number.isFinite(fixedRateCourseTarget)) project.fixedRateCourseTarget = Math.max(0, fixedRateCourseTarget);
+  const bidragRate = parseAmount(data.get("bidragRate"));
+  project.bidragRate = Number.isFinite(bidragRate) ? Math.max(0, bidragRate) : 0;
+  const aopBeforeTax = parseAmount(data.get("aopBeforeTax"));
+  project.aopBeforeTax = Number.isFinite(aopBeforeTax) ? Math.max(0, aopBeforeTax) : 0;
+  const interestOnlyUntil = String(data.get("interestOnlyUntil") || "");
+  project.interestOnlyUntil = isIsoDate(interestOnlyUntil) ? interestOnlyUntil : "";
   const fkortRate = parseAmount(data.get("fkortRate"));
   project.fkortRate = Number.isFinite(fkortRate) ? Math.max(0, fkortRate) : 0;
   const loanChoice = String(data.get("loanChoice") || "pending");
