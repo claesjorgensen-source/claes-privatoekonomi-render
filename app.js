@@ -1233,10 +1233,11 @@ function buildWealthSnapshotFromSummary(summary, source = "current") {
 }
 
 function captureWealthSnapshot(source = "manual") {
+  const summary = getWealthSummary();
   const wealth = getWealthSettings();
-  const snapshot = buildWealthSnapshotFromSummary(getWealthSummary(), source);
+  const snapshot = buildWealthSnapshotFromSummary(summary, source);
   const history = normalizeWealthHistory(wealth.history).filter((item) => item.date !== snapshot.date);
-  wealth.history = normalizeWealthHistory([...history, snapshot]);
+  state.settings.wealth.history = normalizeWealthHistory([...history, snapshot]);
   return snapshot;
 }
 
