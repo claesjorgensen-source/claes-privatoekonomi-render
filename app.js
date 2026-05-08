@@ -3852,7 +3852,7 @@ function renderRecurringStatusBadge(row) {
 }
 
 function renderRecurringMonthMatrix(analysis) {
-  const rows = analysis.rows.slice(0, 14);
+  const rows = analysis.rows.slice(0, 32);
   const months = analysis.months.slice(-6);
   return `
     <div class="table-wrap fixed-month-matrix">
@@ -7483,9 +7483,18 @@ function merchantName(description) {
     .replace(/\bC\d{6,}\b/gi, "")
     .replace(/\b\d{6,}\b/g, "")
     .replace(/\b\d{2}[-.]\d{2}[-.]\d{2,4}\b/g, "")
+    .replace(/,\s*[^,]+(?:,\s*[^,]+)*$/i, "")
     .replace(/\s{2,}/g, " ")
     .trim();
-  return cleaned || "Ukendt";
+  return canonicalMerchantName(cleaned) || "Ukendt";
+}
+
+function canonicalMerchantName(name) {
+  const text = String(name || "").trim();
+  const normalized = normalize(text);
+  if (!normalized) return "";
+  if (/^meny\b.*frederiksberg/.test(normalized)) return "Meny Frederiksberg";
+  return text;
 }
 
 function getQuickCategoryActions() {
