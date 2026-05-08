@@ -1199,6 +1199,133 @@ h3 {
   margin: 0 0 6px;
 }
 
+.wealth-history-hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.55fr) minmax(360px, 1fr);
+  gap: clamp(18px, 3vw, 34px);
+  align-items: stretch;
+  border: 1px solid rgba(0, 87, 63, 0.16);
+  border-radius: 34px;
+  padding: clamp(22px, 3vw, 34px);
+  background:
+    radial-gradient(circle at 12% 6%, rgba(0, 122, 83, 0.16), transparent 22rem),
+    radial-gradient(circle at 92% 0%, rgba(111, 86, 179, 0.12), transparent 24rem),
+    linear-gradient(135deg, rgba(254, 255, 249, 0.98), rgba(232, 242, 232, 0.9));
+  box-shadow: 0 24px 70px rgba(16, 35, 29, 0.07);
+  overflow: hidden;
+}
+
+.wealth-history-copy h2 {
+  margin: 4px 0 10px;
+  font-size: clamp(2.6rem, 6vw, 6.2rem);
+  line-height: 0.88;
+  letter-spacing: -0.085em;
+}
+
+.wealth-history-copy p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.wealth-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.wealth-history-meta span {
+  border: 1px solid rgba(0, 87, 63, 0.12);
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(255, 250, 241, 0.66);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.wealth-history-chart-wrap {
+  min-height: 240px;
+  border: 1px solid rgba(0, 87, 63, 0.1);
+  border-radius: 26px;
+  padding: 12px;
+  background: rgba(255, 250, 241, 0.62);
+  display: grid;
+  align-items: stretch;
+  color: var(--accent-strong);
+}
+
+.wealth-history-chart {
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  overflow: visible;
+}
+
+.wealth-chart-axis {
+  stroke: rgba(16, 35, 29, 0.08);
+  stroke-width: 1;
+}
+
+.wealth-chart-area {
+  fill: url(#wealthHistoryFill);
+}
+
+.wealth-chart-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wealth-chart-dot {
+  fill: #fffaf1;
+  stroke: currentColor;
+  stroke-width: 3;
+}
+
+.wealth-chart-label {
+  fill: rgba(16, 35, 29, 0.48);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.wealth-history-drivers {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.wealth-driver {
+  border: 1px solid rgba(0, 87, 63, 0.1);
+  border-radius: 20px;
+  padding: 14px;
+  background: rgba(255, 250, 241, 0.68);
+  display: grid;
+  gap: 4px;
+}
+
+.wealth-driver span,
+.wealth-driver small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.wealth-driver strong {
+  font-size: clamp(1.05rem, 2vw, 1.45rem);
+  letter-spacing: -0.055em;
+}
+
+.wealth-driver.crypto { border-color: rgba(111, 86, 179, 0.18); }
+.wealth-driver.stocks { border-color: rgba(0, 87, 63, 0.18); }
+.wealth-driver .positive { color: var(--ok); }
+.wealth-driver .negative { color: var(--danger); }
+
 .wealth-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.72fr) minmax(0, 1.28fr);
@@ -2296,6 +2423,133 @@ h3 {
   margin: 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.fixed-spend-command {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 0.7fr);
+  gap: 22px;
+  align-items: stretch;
+  border: 1px solid rgba(0, 87, 63, 0.16);
+  border-radius: 30px;
+  padding: clamp(22px, 3vw, 32px);
+  background:
+    radial-gradient(circle at 92% 12%, rgba(215, 230, 163, 0.48), transparent 18rem),
+    linear-gradient(135deg, rgba(254, 255, 249, 0.96), rgba(232, 242, 232, 0.86));
+  box-shadow: 0 18px 58px rgba(16, 35, 29, 0.06);
+}
+
+.fixed-spend-command h2 {
+  margin: 4px 0 8px;
+  font-size: clamp(2rem, 4.2vw, 4.2rem);
+  line-height: 0.96;
+  letter-spacing: -0.08em;
+}
+
+.fixed-spend-command p {
+  max-width: 700px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.fixed-spend-category-stack {
+  display: grid;
+  gap: 9px;
+  align-content: center;
+}
+
+.fixed-spend-category-stack button {
+  border: 1px solid rgba(16, 35, 29, 0.1);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 250, 241, 0.66);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.fixed-spend-category-stack span {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.fixed-spend-category-stack i,
+.category-chip::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--dot);
+  flex: 0 0 auto;
+}
+
+.fixed-spend-category-stack strong {
+  font-weight: 950;
+  letter-spacing: -0.04em;
+}
+
+.fixed-spend-category-stack em {
+  grid-column: 1 / -1;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  width: var(--width);
+  opacity: 0.78;
+}
+
+.fixed-spend-panel table td,
+.fixed-spend-panel table th {
+  vertical-align: middle;
+}
+
+.category-chip,
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: rgba(16, 35, 29, 0.05);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.status-badge {
+  background: rgba(0, 122, 83, 0.1);
+  color: var(--accent-strong);
+}
+
+.status-badge.positive {
+  background: rgba(44, 123, 74, 0.12);
+  color: var(--ok);
+}
+
+.status-badge.negative {
+  background: rgba(183, 75, 75, 0.12);
+  color: var(--danger);
+}
+
+.status-badge.muted {
+  background: rgba(16, 35, 29, 0.06);
+  color: var(--muted);
+}
+
+.fixed-month-matrix td:first-child span {
+  display: grid;
+  gap: 2px;
+}
+
+.fixed-month-matrix td:first-child small {
+  color: var(--muted);
 }
 
 .cashflow-bridge,
@@ -3582,6 +3836,98 @@ button.list-row,
   font-weight: 800;
 }
 
+.tk-rate-history-panel {
+  margin-top: 12px;
+  border: 1px solid rgba(16, 35, 29, 0.09);
+  border-radius: 20px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.tk-history-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.tk-history-head span {
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tk-history-head strong {
+  font-size: 0.92rem;
+  letter-spacing: -0.02em;
+}
+
+.tk-history-chart {
+  position: relative;
+  min-height: 94px;
+  border-radius: 16px;
+  background: rgba(255, 250, 241, 0.55);
+  overflow: hidden;
+}
+
+.tk-history-chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.tk-history-chart path {
+  fill: none;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tk-history-chart circle {
+  fill: #fffaf1;
+  stroke-width: 2.5;
+}
+
+.tk-fixed-line path,
+.tk-fixed-line circle { stroke: var(--accent-strong); }
+.tk-fkort-line path,
+.tk-fkort-line circle { stroke: #8a5fb8; }
+
+.tk-history-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.tk-history-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: rgba(255, 250, 241, 0.72);
+}
+
+.tk-history-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.tk-history-legend i.fixed { background: var(--accent-strong); }
+.tk-history-legend i.fkort { background: #8a5fb8; }
+
 .tk-rate-history {
   margin-top: 10px;
   display: grid;
@@ -4423,6 +4769,9 @@ button.list-row,
   .workspace-grid,
   .analysis-command,
   .analysis-visual-grid,
+  .fixed-spend-command,
+  .wealth-history-hero,
+  .wealth-history-drivers,
   .split,
   .steps-grid,
   .finance-cockpit,
@@ -4560,7 +4909,8 @@ button.list-row,
   }
 
   .tk-rate-grid,
-  .tk-rate-history div {
+  .tk-rate-history div,
+  .wealth-history-drivers {
     grid-template-columns: 1fr;
   }
 

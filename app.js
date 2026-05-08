@@ -1136,7 +1136,32 @@ function normalizeWealthSettings(wealth = {}) {
     properties,
     pension,
     deltaPortfolio: wealth.deltaPortfolio || null,
+    history: normalizeWealthHistory(wealth.history),
   };
+}
+
+function normalizeWealthHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .map((item) => ({
+      id: String(item.id || item.date || item.at || uid("wealth-snapshot")),
+      at: item.at || item.date || new Date().toISOString(),
+      date: String(item.date || item.at || "").slice(0, 10) || todayISO(),
+      total: Number(item.total || 0) || 0,
+      cash: Number(item.cash || 0) || 0,
+      propertyEquity: Number(item.propertyEquity || 0) || 0,
+      propertyValue: Number(item.propertyValue || 0) || 0,
+      propertyDebt: Number(item.propertyDebt || 0) || 0,
+      investments: Number(item.investments || 0) || 0,
+      stockMarketValueDkk: Number(item.stockMarketValueDkk || 0) || 0,
+      cryptoMarketValueDkk: Number(item.cryptoMarketValueDkk || 0) || 0,
+      pension: Number(item.pension || 0) || 0,
+      openPositions: Number(item.openPositions || 0) || 0,
+      pricedPositions: Number(item.pricedPositions || 0) || 0,
+      source: item.source || "manual",
+    }))
+    .filter((item) => isIsoDate(item.date) && Number.isFinite(item.total))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.at.localeCompare(b.at))
+    .slice(-500);
 }
 
 function getWealthSettings() {
@@ -1184,9 +1209,48 @@ function getWealthSummary() {
   return { cash, cashAccount, properties, propertyValue, propertyDebt, propertyEquity, investments, pension, pensionInfo, total, deltaPortfolio };
 }
 
+function buildWealthSnapshotFromSummary(summary, source = "current") {
+  const at = new Date().toISOString();
+  const deltaSummary = summary.deltaPortfolio?.summary || {};
+  const round = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+  return {
+    id: `wealth-${at.slice(0, 10)}`,
+    at,
+    date: at.slice(0, 10),
+    total: round(summary.total),
+    cash: round(summary.cash),
+    propertyEquity: round(summary.propertyEquity),
+    propertyValue: round(summary.propertyValue),
+    propertyDebt: round(summary.propertyDebt),
+    investments: round(summary.investments),
+    stockMarketValueDkk: round(deltaSummary.stockMarketValueDkk || deltaSummary.stockCostDkk || 0),
+    cryptoMarketValueDkk: round(deltaSummary.cryptoMarketValueDkk || deltaSummary.cryptoCostDkk || 0),
+    pension: round(summary.pension),
+    openPositions: Number(deltaSummary.openPositions || 0),
+    pricedPositions: Number(deltaSummary.pricedPositions || 0),
+    source,
+  };
+}
+
+function captureWealthSnapshot(source = "manual") {
+  const wealth = getWealthSettings();
+  const snapshot = buildWealthSnapshotFromSummary(getWealthSummary(), source);
+  const history = normalizeWealthHistory(wealth.history).filter((item) => item.date !== snapshot.date);
+  wealth.history = normalizeWealthHistory([...history, snapshot]);
+  return snapshot;
+}
+
+function getWealthHistorySeries(summary = getWealthSummary()) {
+  const wealth = getWealthSettings();
+  const current = buildWealthSnapshotFromSummary(summary, "current");
+  const rows = normalizeWealthHistory(wealth.history).filter((item) => item.date !== current.date);
+  return normalizeWealthHistory([...rows, current]).slice(-90);
+}
+
 function renderWealthView() {
   const summary = getWealthSummary();
   return `
+    ${renderWealthHistoryHero(summary)}
     <section class="wealth-layout">
       <aside class="wealth-overview-panel" aria-label="Samlet formue">
         <p class="eyebrow">Samlet formue</p>
@@ -1262,6 +1326,95 @@ function renderWealthView() {
       </div>
     </section>
   `;
+}
+
+function renderWealthHistoryHero(summary) {
+  const rows = getWealthHistorySeries(summary);
+  const first = rows[0] || null;
+  const previous = rows.length > 1 ? rows[rows.length - 2] : null;
+  const latest = rows.at(-1) || buildWealthSnapshotFromSummary(summary, "current");
+  const totalDelta = first ? latest.total - first.total : 0;
+  const periodLabel = rows.length > 1 ? `${formatDate(first.date)} → ${formatDate(latest.date)}` : "Første måling";
+  const previousDelta = previous ? latest.total - previous.total : 0;
+  const driverRows = [
+    { label: "Aktier", value: latest.stockMarketValueDkk, delta: first ? latest.stockMarketValueDkk - first.stockMarketValueDkk : 0, tone: "stocks" },
+    { label: "Crypto", value: latest.cryptoMarketValueDkk, delta: first ? latest.cryptoMarketValueDkk - first.cryptoMarketValueDkk : 0, tone: "crypto" },
+    { label: "Kontanter", value: latest.cash, delta: first ? latest.cash - first.cash : 0, tone: "cash" },
+    { label: "Pension", value: latest.pension, delta: first ? latest.pension - first.pension : 0, tone: "pension" },
+  ];
+  return `
+    <section class="wealth-history-hero section" aria-label="Formueudvikling">
+      <div class="wealth-history-copy">
+        <p class="eyebrow">Formueudvikling</p>
+        <h2>${formatCurrency(latest.total)}</h2>
+        <p>${rows.length > 1 ? `${formatSignedCurrency(totalDelta)} siden første måling. Seneste ændring: ${formatSignedCurrency(previousDelta)}.` : "Historikken starter, når kurserne opdateres. Grafen viser seneste måling og bygger videre fremover."}</p>
+        <div class="wealth-history-meta">
+          <span>${escapeHtml(periodLabel)}</span>
+          <span>${rows.length} måling${rows.length === 1 ? "" : "er"}</span>
+          <span>${latest.pricedPositions || 0}/${latest.openPositions || 0} positioner</span>
+        </div>
+      </div>
+      <div class="wealth-history-chart-wrap">
+        ${renderWealthHistoryChart(rows)}
+      </div>
+      <div class="wealth-history-drivers" aria-label="Drivere i formueudviklingen">
+        ${driverRows.map((row) => `
+          <div class="wealth-driver ${escapeHtml(row.tone)}">
+            <span>${escapeHtml(row.label)}</span>
+            <strong>${formatCurrency(row.value)}</strong>
+            <small class="${row.delta >= 0 ? "positive" : "negative"}">${rows.length > 1 ? formatSignedCurrency(row.delta) : "—"}</small>
+          </div>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderWealthHistoryChart(rows) {
+  if (!rows.length) return "";
+  const width = 720;
+  const height = 230;
+  const pad = 22;
+  const totals = rows.map((row) => Number(row.total || 0));
+  let min = Math.min(...totals);
+  let max = Math.max(...totals);
+  if (min === max) {
+    min = Math.max(0, min * 0.96);
+    max = max * 1.04 || 1;
+  }
+  const pointFor = (row, index) => {
+    const x = rows.length === 1 ? width / 2 : pad + (index / (rows.length - 1)) * (width - pad * 2);
+    const y = height - pad - ((Number(row.total || 0) - min) / Math.max(1, max - min)) * (height - pad * 2);
+    return { x, y };
+  };
+  const points = rows.map(pointFor);
+  const linePath = points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const areaPath = `${linePath} L ${points.at(-1).x.toFixed(1)} ${height - pad} L ${points[0].x.toFixed(1)} ${height - pad} Z`;
+  const first = rows[0];
+  const latest = rows.at(-1);
+  return `
+    <svg class="wealth-history-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Formue fra ${escapeHtml(formatDate(first.date))} til ${escapeHtml(formatDate(latest.date))}">
+      <defs>
+        <linearGradient id="wealthHistoryFill" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="currentColor" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="currentColor" stop-opacity="0.02" />
+        </linearGradient>
+      </defs>
+      <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height - pad}" class="wealth-chart-axis" />
+      <line x1="${pad}" y1="${height - pad}" x2="${width - pad}" y2="${height - pad}" class="wealth-chart-axis" />
+      <path d="${areaPath}" class="wealth-chart-area" />
+      <path d="${linePath}" class="wealth-chart-line" />
+      ${points.map((point, index) => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="${index === points.length - 1 ? 5.5 : 3.5}" class="wealth-chart-dot" />`).join("")}
+      <text x="${pad}" y="18" class="wealth-chart-label">${escapeHtml(formatCurrency(max))}</text>
+      <text x="${pad}" y="${height - 4}" class="wealth-chart-label">${escapeHtml(formatCurrency(min))}</text>
+      <text x="${width - pad}" y="${height - 4}" text-anchor="end" class="wealth-chart-label">${escapeHtml(formatDate(latest.date))}</text>
+    </svg>
+  `;
+}
+
+function formatSignedCurrency(value) {
+  const amount = Number(value || 0);
+  if (Math.abs(amount) < 0.5) return formatCurrency(0);
+  return `${amount > 0 ? "+" : "−"}${formatCurrency(Math.abs(amount))}`;
 }
 
 function renderDeltaInvestmentModule(deltaPortfolio) {
@@ -1479,6 +1632,7 @@ async function refreshDeltaMarketPrices({ silent = false } = {}) {
     portfolio.marketPricesUpdatedAt = data.asOf || new Date().toISOString();
     portfolio.fx = data.fx || portfolio.fx || {};
     recomputeDeltaPortfolioSummary(portfolio);
+    captureWealthSnapshot("market-prices");
     saveState();
     render();
     const suffix = `${priceStats.kept ? ` · ${priceStats.kept} beholdt seneste kendte kurs` : ""}${priceStats.missing ? ` · ${priceStats.missing} mangler stadig` : ""}`;
@@ -2353,17 +2507,60 @@ function renderTotalkreditRateTracker(project, summary) {
 }
 
 function renderTotalkreditHistory(history = []) {
-  const rows = history.slice(0, 6);
+  const rows = history.slice(0, 14).reverse();
   if (!rows.length) return "";
+  const latest = rows.at(-1) || {};
   return `
-    <div class="tk-rate-history">
-      ${rows.map((row) => `
-        <div>
-          <span>${escapeHtml(formatDateTime(row.at))}</span>
-          <strong>${row.fixedPriceRate ? formatNumber(row.fixedPriceRate) : "—"}</strong>
-          <em>${row.fkortCurrentRate ? `${formatNumber(row.fkortCurrentRate)}%` : "—"}</em>
-        </div>`).join("")}
+    <div class="tk-rate-history-panel">
+      <div class="tk-history-head">
+        <span>Kursudvikling</span>
+        <strong>Fast kurs ${latest.fixedPriceRate ? formatNumber(latest.fixedPriceRate) : "—"} · F-kort ${latest.fkortCurrentRate ? `${formatNumber(latest.fkortCurrentRate)}%` : "—"}</strong>
+      </div>
+      ${renderTotalkreditHistoryChart(rows)}
+      <div class="tk-rate-history">
+        ${rows.slice(-6).reverse().map((row) => `
+          <div>
+            <span>${escapeHtml(formatDateTime(row.at))}</span>
+            <strong>${row.fixedPriceRate ? `Fast ${formatNumber(row.fixedPriceRate)}` : "Fast —"}</strong>
+            <em>${row.fkortCurrentRate ? `F-kort ${formatNumber(row.fkortCurrentRate)}%` : "F-kort —"}${row.fkortExpectedRate ? ` · forventet ${formatNumber(row.fkortExpectedRate)}%` : ""}</em>
+          </div>`).join("")}
+      </div>
     </div>`;
+}
+
+function renderTotalkreditHistoryChart(rows) {
+  const fixed = rows.map((row) => Number(row.fixedPriceRate || 0)).filter(Boolean);
+  const fkort = rows.map((row) => Number(row.fkortCurrentRate || row.fkortExpectedRate || 0)).filter(Boolean);
+  if (!fixed.length && !fkort.length) return "";
+  return `
+    <div class="tk-history-chart" aria-label="Historik for fast kurs og F-kort rente">
+      ${renderMiniLineSvg(rows, "fixedPriceRate", "tk-fixed-line")}
+      ${renderMiniLineSvg(rows, "fkortCurrentRate", "tk-fkort-line")}
+      <div class="tk-history-legend"><span><i class="fixed"></i>Fast 4% kurs</span><span><i class="fkort"></i>F-kort rente</span></div>
+    </div>`;
+}
+
+function renderMiniLineSvg(rows, field, className) {
+  const values = rows.map((row) => Number(row[field] || 0));
+  const finite = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (finite.length < 1) return "";
+  const width = 520;
+  const height = 90;
+  const pad = 8;
+  let min = Math.min(...finite);
+  let max = Math.max(...finite);
+  if (min === max) {
+    min = min * 0.98;
+    max = max * 1.02 || 1;
+  }
+  const points = values.map((value, index) => {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const x = rows.length === 1 ? width / 2 : pad + (index / (rows.length - 1)) * (width - pad * 2);
+    const y = height - pad - ((value - min) / Math.max(1, max - min)) * (height - pad * 2);
+    return { x, y };
+  }).filter(Boolean);
+  const path = points.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${width} ${height}" class="${escapeHtml(className)}" aria-hidden="true"><path d="${path}" /><circle cx="${points.at(-1).x.toFixed(1)}" cy="${points.at(-1).y.toFixed(1)}" r="4" /></svg>`;
 }
 
 function renderMovingAdvisorNotes(project) {
@@ -3590,29 +3787,99 @@ function renderMerchantsDeepReport() {
 }
 
 function renderRecurringReport() {
-  const rows = getRecurringRows();
+  const analysis = getRecurringSpendAnalysis();
+  const rows = analysis.rows;
   if (!rows.length) return `<section class="section panel pad"><div class="empty-state"><strong>Ingen faste mønstre endnu</strong><span>Der skal flere måneder til for at finde gentagne udgifter.</span></div></section>`;
   return `
-    <section class="section panel pad">
-      <div class="section-heading clean-heading"><div><h2>Mulige faste udgifter</h2><p>Gentagne modtagere på tværs af måneder — nyttigt til abonnementer, regninger og budget.</p></div></div>
+    <section class="metric-band section" aria-label="Faste udgifter">
+      <div class="metric negative"><span>Fast månedlig base</span><strong>${formatCurrency(analysis.monthlyBase)}</strong><small>${analysis.activeRows.length} aktive mønstre</small></div>
+      <div class="metric"><span>Årligt niveau</span><strong>${formatCurrency(analysis.yearlyRunRate)}</strong><small>Hvis basen fortsætter</small></div>
+      <div class="metric ${analysis.changedRows.length ? "negative" : "positive"}"><span>Steget i pris</span><strong>${analysis.changedRows.length}</strong><small>Mod seneste normalniveau</small></div>
+      <div class="metric"><span>Nye mønstre</span><strong>${analysis.newRows.length}</strong><small>Startet de seneste 3 mdr.</small></div>
+    </section>
+
+    <section class="fixed-spend-command section">
+      <div>
+        <p class="eyebrow">Løbende forbrug · ${analysis.months.length} måneder</p>
+        <h2>${escapeHtml(fixedSpendHeadline(analysis))}</h2>
+        <p>${escapeHtml(fixedSpendSubline(analysis))}</p>
+      </div>
+      <div class="fixed-spend-category-stack">
+        ${analysis.categoryRows.slice(0, 6).map((row) => `
+          <button type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(row.category.id)}">
+            <span><i style="--dot:${escapeHtml(row.category.color)}"></i>${escapeHtml(row.category.name)}</span>
+            <strong>${formatCurrency(row.monthlyEstimate)}</strong>
+            <em style="--width:${Math.max(4, Math.round(row.share * 100))}%"></em>
+          </button>`).join("")}
+      </div>
+    </section>
+
+    <section class="section panel pad fixed-spend-panel">
+      <div class="section-heading clean-heading"><div><h2>Faste udgifter og gentagne betalinger</h2><p>Modtagere grupperes pr. kategori, så bolig, børn, transport, abonnementer og øvrigt forbrug kan følges separat.</p></div></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Modtager</th><th>Måneder</th><th>Antal</th><th>Gns.</th><th>Senest</th><th>I alt</th></tr></thead>
+          <thead><tr><th>Modtager</th><th>Kategori</th><th>Frekvens</th><th>Normal/md.</th><th>Senest</th><th>Status</th><th>Måneder</th></tr></thead>
           <tbody>
-            ${rows.slice(0, 30).map((row) => `
+            ${rows.slice(0, 36).map((row) => `
               <tr>
                 <td><button class="link-button" type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button></td>
-                <td>${row.months.length}</td>
-                <td>${row.count}</td>
-                <td class="amount amount-negative">${formatCurrency(row.average)}</td>
-                <td>${escapeHtml(monthLabel(row.latestMonth))}</td>
-                <td class="amount amount-negative">${formatCurrency(row.total)}</td>
+                <td><span class="category-chip" style="--dot:${escapeHtml(row.category?.color || "#999")}">${escapeHtml(row.category?.name || "Ukendt")}</span></td>
+                <td>${escapeHtml(row.frequencyLabel)}</td>
+                <td class="amount amount-negative">${formatCurrency(row.monthlyEstimate)}</td>
+                <td><span>${escapeHtml(monthLabel(row.latestMonth))}</span><br /><small>${formatCurrency(row.latestAmount)}</small></td>
+                <td>${renderRecurringStatusBadge(row)}</td>
+                <td>${row.months.length}/${analysis.months.length}</td>
               </tr>
             `).join("")}
           </tbody>
         </table>
       </div>
     </section>
+
+    <section class="section panel pad fixed-spend-panel">
+      <div class="section-heading clean-heading"><div><h2>Måned for måned</h2><p>De største faste betalinger på tværs af måneder. Tomme felter betyder, at modtageren ikke blev fundet den måned.</p></div></div>
+      ${renderRecurringMonthMatrix(analysis)}
+    </section>
+  `;
+}
+
+function fixedSpendHeadline(analysis) {
+  if (analysis.changedRows[0]) return `${analysis.changedRows[0].name} er steget mest i den faste base`;
+  if (analysis.categoryRows[0]) return `${analysis.categoryRows[0].category.name} fylder mest i de faste udgifter`;
+  return "De faste udgifter er kortlagt på tværs af kategorier";
+}
+
+function fixedSpendSubline(analysis) {
+  const top = analysis.categoryRows[0];
+  const changed = analysis.changedRows[0];
+  if (changed) return `${changed.name} ligger ${formatSignedCurrency(changed.delta)} over normalniveauet. Fast månedlig base er ${formatCurrency(analysis.monthlyBase)}.`;
+  if (top) return `${top.category.name} står for ${formatCurrency(top.monthlyEstimate)} pr. måned, svarende til ${formatPercent(top.share)} af den faste base.`;
+  return `Fast månedlig base er estimeret til ${formatCurrency(analysis.monthlyBase)}.`;
+}
+
+function renderRecurringStatusBadge(row) {
+  const labels = { new: "Ny", increased: "Steget", decreased: "Faldet", inactive: "Stoppet?", stable: "Stabil" };
+  const tone = row.status === "increased" ? "negative" : row.status === "decreased" || row.status === "stable" ? "positive" : row.status === "inactive" ? "muted" : "";
+  return `<span class="status-badge ${tone}">${escapeHtml(labels[row.status] || "Mønster")}</span>`;
+}
+
+function renderRecurringMonthMatrix(analysis) {
+  const rows = analysis.rows.slice(0, 14);
+  const months = analysis.months.slice(-6);
+  return `
+    <div class="table-wrap fixed-month-matrix">
+      <table>
+        <thead><tr><th>Modtager</th>${months.map((month) => `<th>${escapeHtml(shortMonthLabel(month))}</th>`).join("")}<th>Normal/md.</th></tr></thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td><span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.category?.name || "Ukendt")}</small></span></td>
+              ${months.map((month) => `<td class="amount ${row.monthAmounts[month] ? "amount-negative" : ""}">${row.monthAmounts[month] ? formatCurrency(row.monthAmounts[month]) : "—"}</td>`).join("")}
+              <td class="amount amount-negative">${formatCurrency(row.monthlyEstimate)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -3633,23 +3900,142 @@ function getMonthlySeries(count = 12) {
 }
 
 function getRecurringRows() {
+  return getRecurringSpendAnalysis().rows;
+}
+
+function getRecurringSpendAnalysis({ monthCount = 12 } = {}) {
+  const selectedMonth = ui.month || currentMonthKey();
+  const months = lastMonths(selectedMonth, monthCount);
   const grouped = new Map();
-  for (const tx of state.transactions) {
-    const category = categoryById(tx.categoryId);
-    if (!(tx.amount < 0 && category?.kind !== "transfer")) continue;
-    const name = merchantName(tx.description);
-    const month = toMonthKey(tx.date);
-    const entry = grouped.get(name) || { name, total: 0, count: 0, months: new Set(), latestMonth: month };
-    entry.total += Math.abs(Number(tx.amount || 0));
-    entry.count += 1;
-    entry.months.add(month);
-    if (month > entry.latestMonth) entry.latestMonth = month;
-    grouped.set(name, entry);
+  for (const month of months) {
+    for (const tx of getReportingTransactionsForMonth(month)) {
+      if (ui.reportAccountFilter !== "all" && tx.accountId !== ui.reportAccountFilter) continue;
+      if (!isReportExpense(tx)) continue;
+      const name = merchantName(tx.description);
+      const category = categoryById(tx.categoryId);
+      const key = `${tx.categoryId || "cat-other"}::${normalize(name)}`;
+      const amount = Math.abs(Number(tx.amount || 0));
+      const entry = grouped.get(key) || {
+        key,
+        name,
+        category,
+        categoryId: tx.categoryId,
+        total: 0,
+        count: 0,
+        months: new Set(),
+        monthAmounts: {},
+        latestMonth: month,
+        latestAmount: 0,
+        firstMonth: month,
+        examples: [],
+      };
+      entry.total += amount;
+      entry.count += 1;
+      entry.months.add(month);
+      entry.monthAmounts[month] = (entry.monthAmounts[month] || 0) + amount;
+      if (month >= entry.latestMonth) {
+        entry.latestMonth = month;
+        entry.latestAmount = entry.monthAmounts[month];
+      }
+      if (month < entry.firstMonth) entry.firstMonth = month;
+      if (entry.examples.length < 3) entry.examples.push(tx.description);
+      grouped.set(key, entry);
+    }
   }
-  return Array.from(grouped.values())
-    .map((row) => ({ ...row, months: Array.from(row.months).sort(), average: row.total / row.count }))
+  const rows = Array.from(grouped.values())
+    .map((row) => enrichRecurringRow(row, months))
     .filter((row) => row.months.length >= 2 || row.count >= 3)
-    .sort((a, b) => b.months.length - a.months.length || b.total - a.total);
+    .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate || b.total - a.total);
+  const activeRows = rows.filter((row) => row.status !== "inactive");
+  const monthlyBase = activeRows.reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
+  const categoryMap = new Map();
+  for (const row of activeRows) {
+    const id = row.category?.id || row.categoryId || "cat-other";
+    const entry = categoryMap.get(id) || { category: row.category || categoryById(id) || { id, name: "Ukendt", color: "#999" }, monthlyEstimate: 0, count: 0 };
+    entry.monthlyEstimate += row.monthlyEstimate;
+    entry.count += 1;
+    categoryMap.set(id, entry);
+  }
+  const categoryRows = Array.from(categoryMap.values())
+    .map((row) => ({ ...row, share: monthlyBase ? row.monthlyEstimate / monthlyBase : 0 }))
+    .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate);
+  const changedRows = activeRows.filter((row) => row.status === "increased").sort((a, b) => b.delta - a.delta);
+  const newRows = activeRows.filter((row) => row.status === "new");
+  return { rows, activeRows, categoryRows, changedRows, newRows, monthlyBase, yearlyRunRate: monthlyBase * 12, months };
+}
+
+function enrichRecurringRow(row, analysisMonths) {
+  const months = Array.from(row.months).sort();
+  const amounts = months.map((month) => Number(row.monthAmounts[month] || 0)).filter((amount) => amount > 0);
+  const latestAmount = Number(row.monthAmounts[row.latestMonth] || row.latestAmount || 0);
+  const previousAmounts = amounts.slice(0, -1);
+  const normalAmount = previousAmounts.length ? median(previousAmounts) : median(amounts);
+  const gaps = monthGaps(months);
+  const frequency = inferRecurringFrequency(months, gaps, analysisMonths.length);
+  const monthlyEstimate = recurringMonthlyEstimate(row, frequency, analysisMonths.length);
+  const delta = latestAmount - normalAmount;
+  const latestIndex = analysisMonths.indexOf(row.latestMonth);
+  const firstIndex = analysisMonths.indexOf(row.firstMonth);
+  const missingRecent = latestIndex >= 0 && latestIndex < analysisMonths.length - 2;
+  const relativeChange = normalAmount > 0 ? delta / normalAmount : 0;
+  let status = "stable";
+  if (missingRecent) status = "inactive";
+  else if (firstIndex >= Math.max(0, analysisMonths.length - 3)) status = "new";
+  else if (delta > 25 && relativeChange > 0.08) status = "increased";
+  else if (delta < -25 && relativeChange < -0.08) status = "decreased";
+  return {
+    ...row,
+    months,
+    average: row.total / Math.max(1, row.count),
+    normalAmount,
+    latestAmount,
+    delta,
+    frequency,
+    frequencyLabel: recurringFrequencyLabel(frequency),
+    monthlyEstimate,
+    status,
+  };
+}
+
+function monthGaps(months) {
+  const indexes = months.map(monthIndex);
+  return indexes.slice(1).map((index, i) => index - indexes[i]);
+}
+
+function monthIndex(month) {
+  const [year, monthNo] = String(month || "").split("-").map(Number);
+  return year * 12 + (monthNo || 1);
+}
+
+function inferRecurringFrequency(months, gaps, analysisMonthCount) {
+  if (months.length >= Math.max(3, Math.floor(analysisMonthCount * 0.45)) && gaps.filter((gap) => gap <= 1).length >= Math.max(1, gaps.length - 1)) return "monthly";
+  if (gaps.some((gap) => gap >= 2 && gap <= 4)) return "quarterly";
+  if (gaps.some((gap) => gap >= 10)) return "yearly";
+  return "irregular";
+}
+
+function recurringFrequencyLabel(frequency) {
+  if (frequency === "monthly") return "Månedlig";
+  if (frequency === "quarterly") return "Kvartalsvis";
+  if (frequency === "yearly") return "Årlig";
+  return "Gentagen";
+}
+
+function recurringMonthlyEstimate(row, frequency, analysisMonthCount) {
+  const months = Array.from(row.months || []);
+  const amounts = months.map((month) => Number(row.monthAmounts[month] || 0)).filter((amount) => amount > 0);
+  if (!amounts.length) return 0;
+  if (frequency === "monthly") return median(amounts.slice(-4));
+  if (frequency === "quarterly") return median(amounts) / 3;
+  if (frequency === "yearly") return median(amounts) / 12;
+  return row.total / Math.max(1, analysisMonthCount);
+}
+
+function median(values) {
+  const rows = values.map(Number).filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!rows.length) return 0;
+  const mid = Math.floor(rows.length / 2);
+  return rows.length % 2 ? rows[mid] : (rows[mid - 1] + rows[mid]) / 2;
 }
 
 function renderAccountsReport() {
@@ -7104,6 +7490,8 @@ function groupExpensesByMerchant(expenses) {
 function merchantName(description) {
   const firstPart = String(description || "").split(" · ").find(Boolean) || "Ukendt";
   const cleaned = firstPart
+    .replace(/^(dankort[-\s]*køb|kortkøb|visa\s*køb|mastercard\s*køb|mobilepay|betalingsservice)\s+/i, "")
+    .replace(/\b(aftalenr\.?|notanr\.?|nota)\b.*$/i, "")
     .replace(/\bC\d{6,}\b/gi, "")
     .replace(/\b\d{6,}\b/g, "")
     .replace(/\b\d{2}[-.]\d{2}[-.]\d{2,4}\b/g, "")
