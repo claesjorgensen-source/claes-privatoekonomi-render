@@ -1416,6 +1416,51 @@ async function readDeltaCsvFile(file) {
   }
 }
 
+const CLIENT_CRYPTO_PRICE_IDS = Object.freeze({
+  BTC: "bitcoin",
+  XBT: "bitcoin",
+  ETH: "ethereum",
+  SOL: "solana",
+  XRP: "ripple",
+  ADA: "cardano",
+  DOGE: "dogecoin",
+  SHIB: "shiba-inu",
+  DOT: "polkadot",
+  AVAX: "avalanche-2",
+  MATIC: "matic-network",
+  POL: "polygon-ecosystem-token",
+  LINK: "chainlink",
+  UNI: "uniswap",
+  LTC: "litecoin",
+  BCH: "bitcoin-cash",
+  ETC: "ethereum-classic",
+  ATOM: "cosmos",
+  NEAR: "near",
+  FIL: "filecoin",
+  ICP: "internet-computer",
+  HBAR: "hedera-hashgraph",
+  ARB: "arbitrum",
+  OP: "optimism",
+  AAVE: "aave",
+  BNB: "binancecoin",
+  XLM: "stellar",
+  TRX: "tron",
+  MIOTA: "iota",
+  IOTA: "iota",
+  MKR: "maker",
+  YFI: "yearn-finance",
+  DODO: "dodo",
+  FTT: "ftx-token",
+  APY: "apy-finance",
+  PAY: "tenx",
+  POWR: "power-ledger",
+  EWT: "energy-web-token",
+  C20: "crypto20",
+  USDT: "tether",
+  USDC: "usd-coin",
+  DAI: "dai",
+});
+
 async function refreshDeltaMarketPrices({ silent = false } = {}) {
   const portfolio = getWealthSettings().deltaPortfolio;
   if (!portfolio?.holdings?.length) {
@@ -1428,7 +1473,9 @@ async function refreshDeltaMarketPrices({ silent = false } = {}) {
       method: "POST",
       body: { force: true, holdings: portfolio.holdings.map(({ symbol, type, exchange, name }) => ({ symbol, type, exchange, name })) },
     });
-    const priceStats = applyMarketPricesToDeltaPortfolio(portfolio, data.quotes || []);
+    const serverQuotes = data.quotes || [];
+    const clientCryptoQuotes = await lookupClientCryptoPricesForMissing(portfolio.holdings, serverQuotes);
+    const priceStats = applyMarketPricesToDeltaPortfolio(portfolio, mergeMarketQuotes(serverQuotes, clientCryptoQuotes));
     portfolio.marketPricesUpdatedAt = data.asOf || new Date().toISOString();
     portfolio.fx = data.fx || portfolio.fx || {};
     recomputeDeltaPortfolioSummary(portfolio);
@@ -1441,6 +1488,67 @@ async function refreshDeltaMarketPrices({ silent = false } = {}) {
     console.error(error);
     notify(`Kunne ikke hente markedskurser: ${error.message}`, "danger");
   }
+}
+
+async function lookupClientCryptoPricesForMissing(holdings, quotes) {
+  const serverBySymbol = new Map((quotes || []).map((quote) => [normalizeHoldingSymbol(quote.normalizedSymbol || quote.symbol), quote]));
+  const missingCrypto = (holdings || []).filter((holding) => {
+    if (String(holding.type || "").toUpperCase() !== "CRYPTO") return false;
+    const quote = serverBySymbol.get(normalizeHoldingSymbol(holding.symbol));
+    return !Number(quote?.priceDkk || 0);
+  });
+  const idsBySymbol = new Map();
+  for (const holding of missingCrypto) {
+    const symbol = normalizeHoldingSymbol(holding.symbol);
+    const id = CLIENT_CRYPTO_PRICE_IDS[symbol];
+    if (id) idsBySymbol.set(symbol, id);
+  }
+  if (!idsBySymbol.size) return [];
+  try {
+    const ids = Array.from(new Set(idsBySymbol.values()));
+    const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}&vs_currencies=dkk,usd&include_24hr_change=true`, { headers: { Accept: "application/json" } });
+    if (!response.ok) return [];
+    const data = await response.json();
+    const asOf = new Date().toISOString();
+    return missingCrypto.map((holding) => {
+      const symbol = normalizeHoldingSymbol(holding.symbol);
+      const id = idsBySymbol.get(symbol);
+      const price = id ? data[id] : null;
+      const priceDkk = Number(price?.dkk || 0);
+      if (!Number.isFinite(priceDkk) || priceDkk <= 0) return null;
+      return {
+        symbol: holding.symbol,
+        normalizedSymbol: symbol,
+        type: "CRYPTO",
+        price: Number(price.usd || 0),
+        currency: "USD",
+        priceDkk,
+        changePct: Number.isFinite(Number(price.dkk_24h_change)) ? Number(price.dkk_24h_change) : null,
+        asOf,
+        source: "CoinGecko",
+      };
+    }).filter(Boolean);
+  } catch (error) {
+    console.warn("CoinGecko browser-fallback fejlede", error);
+    return [];
+  }
+}
+
+function mergeMarketQuotes(serverQuotes, fallbackQuotes) {
+  const merged = [...(serverQuotes || [])];
+  const indexBySymbol = new Map();
+  merged.forEach((quote, index) => indexBySymbol.set(normalizeHoldingSymbol(quote.normalizedSymbol || quote.symbol), index));
+  for (const quote of fallbackQuotes || []) {
+    const key = normalizeHoldingSymbol(quote.normalizedSymbol || quote.symbol);
+    const existingIndex = indexBySymbol.get(key);
+    if (existingIndex == null) {
+      indexBySymbol.set(key, merged.length);
+      merged.push(quote);
+      continue;
+    }
+    if (!Number(merged[existingIndex]?.priceDkk || 0) && Number(quote.priceDkk || 0) > 0) merged[existingIndex] = quote;
+  }
+  return merged;
 }
 
 function applyMarketPricesToDeltaPortfolio(portfolio, quotes) {
