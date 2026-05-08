@@ -53,7 +53,7 @@ const SUPABASE_APP_STATE_ID = process.env.SUPABASE_APP_STATE_ID || "claes";
 const CATEGORIZATION_WEB_LOOKUP = process.env.CATEGORIZATION_WEB_LOOKUP === "1";
 const PUBLIC_PATHS = new Set(["/login.html", "/privacy.html", "/terms.html", "/icon.svg", "/manifest.webmanifest", "/service-worker.js"]);
 const SECURITY_HEADERS = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; manifest-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://api.coingecko.com; manifest-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "same-origin",
