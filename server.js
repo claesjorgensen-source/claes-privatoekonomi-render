@@ -1207,9 +1207,31 @@ async function writeAppState(body) {
   if (DATA_BACKEND === "supabase") return writeSupabaseAppState(body);
   await mkdir(DATA_DIR, { recursive: true });
   const state = body?.state || body;
+  await assertSafeAppStateWrite(state, body, async () => {
+    try {
+      return JSON.parse(await readFile(APP_STATE_FILE, "utf8"));
+    } catch {
+      return { ok: false, state: null, savedAt: "" };
+    }
+  });
   const savedAt = new Date().toISOString();
   if (state?.settings) state.settings.serverSavedAt = savedAt;
   await writeFile(APP_STATE_FILE, JSON.stringify({ ok: true, savedAt, state }, null, 2));
+}
+
+async function assertSafeAppStateWrite(nextState, body, readExisting) {
+  if (body?.allowEmptyState === true) return;
+  const nextCount = appStateTransactionCount(nextState);
+  if (nextCount > 0) return;
+  const existing = await readExisting();
+  const existingCount = appStateTransactionCount(existing?.state || existing);
+  if (existingCount > 0) {
+    throw new Error(`Afviser at overskrive ${existingCount} serverposteringer med tom state.`);
+  }
+}
+
+function appStateTransactionCount(state) {
+  return Array.isArray(state?.transactions) ? state.transactions.length : 0;
 }
 
 function requireSupabaseConfig() {
@@ -1231,6 +1253,7 @@ async function readSupabaseAppState() {
 async function writeSupabaseAppState(body) {
   requireSupabaseConfig();
   const state = body?.state || body;
+  await assertSafeAppStateWrite(state, body, readSupabaseAppState);
   const savedAt = new Date().toISOString();
   if (state?.settings) state.settings.serverSavedAt = savedAt;
   const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state`, {

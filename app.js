@@ -473,6 +473,10 @@ function persistStateToServer() {
     }
     const fingerprint = stateFingerprint(state);
     if (fingerprint === lastPersistedStateFingerprint) return;
+    if (!state.transactions?.length && !state.settings?.allowEmptyServerState) {
+      console.warn("Tom lokal state gemmes ikke automatisk til serveren.");
+      return;
+    }
     fetch("/api/app-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
