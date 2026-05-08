@@ -110,24 +110,47 @@ const CRYPTO_PRICE_IDS = {
   BTC: "bitcoin",
   XBT: "bitcoin",
   ETH: "ethereum",
-  FTT: "ftx-token",
-  "FTT*": "ftx-token",
-  YFI: "yearn-finance",
-  APY: "apy-finance",
+  SOL: "solana",
+  XRP: "ripple",
+  ADA: "cardano",
+  DOGE: "dogecoin",
+  SHIB: "shiba-inu",
+  DOT: "polkadot",
+  AVAX: "avalanche-2",
+  MATIC: "matic-network",
+  POL: "polygon-ecosystem-token",
+  LINK: "chainlink",
+  UNI: "uniswap",
+  LTC: "litecoin",
+  BCH: "bitcoin-cash",
+  ETC: "ethereum-classic",
+  ATOM: "cosmos",
+  NEAR: "near",
+  FIL: "filecoin",
+  ICP: "internet-computer",
+  HBAR: "hedera-hashgraph",
+  ARB: "arbitrum",
+  OP: "optimism",
   AAVE: "aave",
   "AAVE*": "aave",
-  PAY: "tenx",
-  DODO: "dodo",
-  TRX: "tron",
-  ADA: "cardano",
-  LINK: "chainlink",
   BNB: "binancecoin",
   XLM: "stellar",
+  TRX: "tron",
   MIOTA: "iota",
   IOTA: "iota",
-  POWR: "power-ledger",
   MKR: "maker",
+  YFI: "yearn-finance",
+  DODO: "dodo",
+  FTT: "ftx-token",
+  "FTT*": "ftx-token",
+  APY: "apy-finance",
+  PAY: "tenx",
+  POWR: "power-ledger",
   EWT: "energy-web-token",
+  C20: "crypto20",
+  USDT: "tether",
+  USDC: "usd-coin",
+  DAI: "dai",
 };
 
 const STOCK_SYMBOL_MAP = {
@@ -136,13 +159,14 @@ const STOCK_SYMBOL_MAP = {
 };
 
 let marketPriceCache = { at: 0, key: "", data: null };
+const cryptoSearchCache = new Map();
 
-async function lookupMarketPrices(holdings) {
+async function lookupMarketPrices(holdings, { force = false } = {}) {
   const cleanHoldings = holdings
     .filter((item) => item?.symbol && item?.type)
     .map((item) => ({ symbol: String(item.symbol), type: String(item.type).toUpperCase(), exchange: String(item.exchange || ""), name: String(item.name || "") }));
   const key = JSON.stringify(cleanHoldings.map((item) => `${item.type}:${item.symbol}`).sort());
-  if (marketPriceCache.data && marketPriceCache.key === key && Date.now() - marketPriceCache.at < 10 * 60 * 1000) return marketPriceCache.data;
+  if (!force && marketPriceCache.data && marketPriceCache.key === key && Date.now() - marketPriceCache.at < 10 * 60 * 1000) return marketPriceCache.data;
 
   const fx = await getFxRates();
   const cryptoPrices = await lookupCryptoPrices(cleanHoldings.filter((item) => item.type === "CRYPTO"));
@@ -151,7 +175,11 @@ async function lookupMarketPrices(holdings) {
     return lookupStockPrice(holding, fx);
   }));
   const result = { ok: true, asOf: new Date().toISOString(), fx, quotes };
-  marketPriceCache = { at: Date.now(), key, data: result };
+  const pricedCount = quotes.filter((quote) => Number(quote?.priceDkk || 0) > 0).length;
+  if (pricedCount || !cleanHoldings.length) marketPriceCache = { at: Date.now(), key, data: result };
+  if (!pricedCount && marketPriceCache.data && marketPriceCache.key === key) {
+    return { ...marketPriceCache.data, stale: true, warning: "Kunne ikke hente friske kurser; viser seneste server-cache." };
+  }
   return result;
 }
 
@@ -172,33 +200,30 @@ async function getFxRates() {
 }
 
 async function lookupCryptoPrices(holdings) {
-  const idsBySymbol = new Map();
-  for (const holding of holdings) {
-    const symbol = normalizeCryptoSymbol(holding.symbol);
-    const id = CRYPTO_PRICE_IDS[symbol] || CRYPTO_PRICE_IDS[holding.symbol];
-    if (id) idsBySymbol.set(symbol, id);
-  }
+  const idsBySymbol = await resolveCryptoPriceIds(holdings);
   if (!idsBySymbol.size) return {};
   const ids = Array.from(new Set(idsBySymbol.values()));
   try {
-    const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}&vs_currencies=dkk,usd&include_24hr_change=true`, { headers: { Accept: "application/json", "User-Agent": "privatoekonomi/1.0" } });
+    const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}&vs_currencies=dkk,usd&include_24hr_change=true`, { headers: { Accept: "application/json", "User-Agent": "claes-privatoekonomi/1.0" } });
+    if (!response.ok) throw new Error(`CoinGecko svarede ${response.status}`);
     const data = await response.json();
     const result = {};
     for (const holding of holdings) {
       const symbol = normalizeCryptoSymbol(holding.symbol);
       const id = idsBySymbol.get(symbol);
       const price = id ? data[id] : null;
-      result[symbol] = price?.dkk ? {
+      const priceDkk = Number(price?.dkk || 0);
+      result[symbol] = Number.isFinite(priceDkk) && priceDkk > 0 ? {
         symbol: holding.symbol,
         normalizedSymbol: symbol,
         type: "CRYPTO",
         price: Number(price.usd || 0),
         currency: "USD",
-        priceDkk: Number(price.dkk || 0),
+        priceDkk,
         changePct: Number.isFinite(Number(price.dkk_24h_change)) ? Number(price.dkk_24h_change) : null,
         asOf: new Date().toISOString(),
         source: "CoinGecko",
-      } : missingQuote(holding, "CoinGecko fandt ikke kursen.");
+      } : missingQuote(holding, id ? "CoinGecko fandt ikke kursen." : "Ingen CoinGecko-match.");
     }
     return result;
   } catch (error) {
@@ -206,15 +231,81 @@ async function lookupCryptoPrices(holdings) {
   }
 }
 
+async function resolveCryptoPriceIds(holdings) {
+  const idsBySymbol = new Map();
+  const unresolved = [];
+  for (const holding of holdings) {
+    const symbol = normalizeCryptoSymbol(holding.symbol);
+    if (!symbol) continue;
+    const configuredId = CRYPTO_PRICE_IDS[symbol] || CRYPTO_PRICE_IDS[String(holding.symbol || "").toUpperCase()];
+    if (configuredId) idsBySymbol.set(symbol, configuredId);
+    else unresolved.push(holding);
+  }
+  await Promise.all(unresolved.map(async (holding) => {
+    const symbol = normalizeCryptoSymbol(holding.symbol);
+    const id = await resolveCoinGeckoIdForHolding(holding);
+    if (id) idsBySymbol.set(symbol, id);
+  }));
+  return idsBySymbol;
+}
+
+async function resolveCoinGeckoIdForHolding(holding) {
+  const symbol = normalizeCryptoSymbol(holding.symbol);
+  const cacheKey = `${symbol}:${normalizeLookupText(holding.name)}`;
+  const cached = cryptoSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 24 * 60 * 60 * 1000) return cached.id;
+  let id = await searchCoinGeckoId(symbol, holding);
+  if (!id && holding.name) id = await searchCoinGeckoId(holding.name, holding);
+  cryptoSearchCache.set(cacheKey, { at: Date.now(), id: id || "" });
+  return id || "";
+}
+
+async function searchCoinGeckoId(query, holding) {
+  const cleanQuery = String(query || "").trim();
+  if (!cleanQuery) return "";
+  try {
+    const response = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(cleanQuery)}`, { headers: { Accept: "application/json", "User-Agent": "claes-privatoekonomi/1.0" } });
+    if (!response.ok) return "";
+    const data = await response.json();
+    return chooseCoinGeckoCandidate(data?.coins || [], holding)?.id || "";
+  } catch {
+    return "";
+  }
+}
+
+function chooseCoinGeckoCandidate(candidates, holding) {
+  const targetSymbol = normalizeCryptoSymbol(holding.symbol);
+  const targetName = normalizeLookupText(holding.name);
+  return candidates
+    .map((coin) => {
+      const coinSymbol = normalizeCryptoSymbol(coin.symbol);
+      const coinName = normalizeLookupText(coin.name);
+      const coinId = normalizeLookupText(coin.id);
+      let score = 0;
+      if (coinSymbol === targetSymbol) score += 100;
+      if (targetName && coinName === targetName) score += 40;
+      if (targetName && (coinName.includes(targetName) || targetName.includes(coinName))) score += 15;
+      if (targetName && (coinId.includes(targetName) || targetName.includes(coinId))) score += 10;
+      if (Number(coin.market_cap_rank) > 0) score += Math.max(0, 20 - Number(coin.market_cap_rank) / 100);
+      return { coin, score };
+    })
+    .filter((item) => item.score >= 100)
+    .sort((a, b) => b.score - a.score)[0]?.coin || null;
+}
+
 function normalizeCryptoSymbol(symbol) {
-  return String(symbol || "").replace(/\*+$/, "").toUpperCase();
+  return String(symbol || "").trim().replace(/^\$+/, "").replace(/\*+$/, "").toUpperCase();
+}
+
+function normalizeLookupText(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 async function lookupStockPrice(holding, fx) {
-  const stooq = await lookupStooqPrice(holding, fx);
-  if (stooq?.priceDkk) return stooq;
   const yahoo = await lookupYahooPrice(holding, fx);
   if (yahoo?.priceDkk) return yahoo;
+  const stooq = await lookupStooqPrice(holding, fx);
+  if (stooq?.priceDkk) return stooq;
   return missingQuote(holding, yahoo?.error || stooq?.error || "Ingen gratis kurs fundet.");
 }
 
@@ -254,11 +345,12 @@ async function lookupYahooPrice(holding, fx) {
   const yahooSymbol = mapped.yahoo || holding.symbol;
   if (!yahooSymbol) return null;
   try {
-    const response = await fetch(`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=5d&interval=1d`, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 privatoekonomi/1.0" } });
+    const response = await fetch(`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=1d&interval=5m&includePrePost=true`, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 claes-privatoekonomi/1.0" } });
     const data = await response.json();
     const result = data?.chart?.result?.[0];
     const meta = result?.meta || {};
-    const price = Number(meta.regularMarketPrice || meta.previousClose || 0);
+    const latest = latestYahooChartPrice(result);
+    const price = Number(latest?.price || meta.regularMarketPrice || meta.previousClose || 0);
     const currency = String(meta.currency || mapped.currency || currencyForStock(holding));
     if (!Number.isFinite(price) || price <= 0) return { error: data?.chart?.error?.description || "Yahoo returnerede ikke en kurs." };
     return {
@@ -267,12 +359,37 @@ async function lookupYahooPrice(holding, fx) {
       price,
       currency,
       priceDkk: price * (fx[currency] || 1),
-      asOf: meta.regularMarketTime ? new Date(Number(meta.regularMarketTime) * 1000).toISOString() : new Date().toISOString(),
-      source: "Yahoo Finance",
+      asOf: latest?.time ? new Date(Number(latest.time) * 1000).toISOString() : meta.regularMarketTime ? new Date(Number(meta.regularMarketTime) * 1000).toISOString() : new Date().toISOString(),
+      source: latest?.session === "post" ? "Yahoo Finance after-hours" : latest?.session === "pre" ? "Yahoo Finance pre-market" : "Yahoo Finance",
     };
   } catch (error) {
     return { error: error.message };
   }
+}
+
+function latestYahooChartPrice(result) {
+  const timestamps = result?.timestamp || [];
+  const quotes = result?.indicators?.quote?.[0] || {};
+  const closes = quotes.close || [];
+  const tradingPeriod = result?.meta?.currentTradingPeriod || {};
+  for (let index = timestamps.length - 1; index >= 0; index -= 1) {
+    const price = Number(closes[index]);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    const time = Number(timestamps[index]);
+    return { price, time, session: yahooTradingSession(time, tradingPeriod) };
+  }
+  return null;
+}
+
+function yahooTradingSession(time, tradingPeriod) {
+  if (!Number.isFinite(time)) return "regular";
+  const pre = tradingPeriod?.pre || {};
+  const regular = tradingPeriod?.regular || {};
+  const post = tradingPeriod?.post || {};
+  if (time >= Number(pre.start || 0) && time < Number(pre.end || 0)) return "pre";
+  if (time >= Number(post.start || 0) && time <= Number(post.end || 0)) return "post";
+  if (time >= Number(regular.start || 0) && time <= Number(regular.end || 0)) return "regular";
+  return "regular";
 }
 
 function currencyForStock(holding) {
@@ -431,7 +548,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/market-prices") {
     const body = await readJsonBody(req);
-    const prices = await lookupMarketPrices(Array.isArray(body.holdings) ? body.holdings : []);
+    const prices = await lookupMarketPrices(Array.isArray(body.holdings) ? body.holdings : [], { force: Boolean(body.force) });
     sendJson(res, 200, prices);
     return;
   }

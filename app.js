@@ -1423,18 +1423,20 @@ async function refreshDeltaMarketPrices({ silent = false } = {}) {
     return;
   }
   try {
+    if (!silent) notify("Henter friske kurser…");
     const data = await apiFetch("/api/market-prices", {
       method: "POST",
-      body: { holdings: portfolio.holdings.map(({ symbol, type, exchange, name }) => ({ symbol, type, exchange, name })) },
+      body: { force: true, holdings: portfolio.holdings.map(({ symbol, type, exchange, name }) => ({ symbol, type, exchange, name })) },
     });
-    applyMarketPricesToDeltaPortfolio(portfolio, data.quotes || []);
+    const priceStats = applyMarketPricesToDeltaPortfolio(portfolio, data.quotes || []);
     portfolio.marketPricesUpdatedAt = data.asOf || new Date().toISOString();
     portfolio.fx = data.fx || portfolio.fx || {};
     recomputeDeltaPortfolioSummary(portfolio);
     saveState();
     render();
-    if (!silent) notify(`Kurser opdateret: ${portfolio.summary.pricedPositions}/${portfolio.summary.openPositions} positioner.`);
-    else notify(`Delta og dagens kurser er opdateret: ${portfolio.summary.pricedPositions}/${portfolio.summary.openPositions} positioner.`);
+    const suffix = `${priceStats.kept ? ` · ${priceStats.kept} beholdt seneste kendte kurs` : ""}${priceStats.missing ? ` · ${priceStats.missing} mangler stadig` : ""}`;
+    if (!silent) notify(`Kurser opdateret: ${portfolio.summary.pricedPositions}/${portfolio.summary.openPositions} positioner${suffix}.`);
+    else notify(`Delta og dagens kurser er opdateret: ${portfolio.summary.pricedPositions}/${portfolio.summary.openPositions} positioner${suffix}.`);
   } catch (error) {
     console.error(error);
     notify(`Kunne ikke hente markedskurser: ${error.message}`, "danger");
@@ -1442,16 +1444,31 @@ async function refreshDeltaMarketPrices({ silent = false } = {}) {
 }
 
 function applyMarketPricesToDeltaPortfolio(portfolio, quotes) {
-  const bySymbol = new Map((quotes || []).map((quote) => [quote.symbol, quote]));
+  const bySymbol = new Map();
+  for (const quote of quotes || []) {
+    bySymbol.set(String(quote.symbol || ""), quote);
+    bySymbol.set(normalizeHoldingSymbol(quote.normalizedSymbol || quote.symbol), quote);
+  }
+  const stats = { updated: 0, kept: 0, missing: 0 };
   for (const holding of portfolio.holdings || []) {
-    const quote = bySymbol.get(holding.symbol) || bySymbol.get(String(holding.symbol || "").replace(/\*+$/, ""));
+    const quote = bySymbol.get(holding.symbol) || bySymbol.get(normalizeHoldingSymbol(holding.symbol));
     if (!quote || !Number(quote.priceDkk)) {
+      const hadPrice = Number(holding.marketPriceDkk || 0) > 0;
+      holding.priceSource = quote?.source || holding.priceSource || "";
+      holding.priceError = quote?.error || "Ingen kurs";
+      if (hadPrice) {
+        stats.kept += 1;
+        continue;
+      }
+      holding.marketPrice = 0;
+      holding.marketCurrency = "";
       holding.marketPriceDkk = 0;
       holding.marketValueDkk = 0;
       holding.gainDkk = null;
       holding.gainPct = null;
-      holding.priceSource = quote?.source || "";
-      holding.priceError = quote?.error || "Ingen kurs";
+      holding.priceAsOf = "";
+      holding.changePct = null;
+      stats.missing += 1;
       continue;
     }
     holding.marketPrice = Number(quote.price || 0);
@@ -1464,7 +1481,13 @@ function applyMarketPricesToDeltaPortfolio(portfolio, quotes) {
     holding.priceSource = quote.source || "";
     holding.priceError = quote.error || "";
     holding.changePct = Number.isFinite(Number(quote.changePct)) ? Number(quote.changePct) : null;
+    stats.updated += 1;
   }
+  return stats;
+}
+
+function normalizeHoldingSymbol(symbol) {
+  return String(symbol || "").trim().replace(/^\$+/, "").replace(/\*+$/, "").toUpperCase();
 }
 
 function recomputeDeltaPortfolioSummary(portfolio) {
