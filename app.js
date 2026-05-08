@@ -346,39 +346,42 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createSeedState();
-    const parsed = JSON.parse(raw);
-    if (!parsed || parsed.version !== 1) return createSeedState();
-    parsed.settings ||= {};
-    parsed.accounts ||= [];
-    parsed.categories ||= [];
-    parsed.rules ||= [];
-    parsed.transactions ||= [];
-    parsed.bankSync ||= { accounts: [], accountMappings: {}, lastSyncAt: "", config: null };
-    parsed.bankSync.enableBanking ||= { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 };
-    parsed.transactions = parsed.transactions
-      .filter((tx) => tx.source !== "demo")
-      .map((tx) => ({ note: "", relationType: "", relationKey: "", linkedTransactionId: "", matchGroupId: "", ...tx, categoryId: simplifyCategoryId(tx.categoryId) }));
-    parsed.accounts = removeUnusedDemoAccounts(parsed.accounts, parsed.transactions);
-    const defaults = createSeedState();
-    parsed.accounts = mergeAccountsByName(parsed.accounts, defaults.accounts);
-    if (!parsed.accounts.length) parsed.accounts = defaults.accounts;
-    parsed.categories = SIMPLIFIED_CATEGORIES.map((category) => ({ ...category }));
-    parsed.rules = mergeRulesByKeyword(parsed.rules, SIMPLIFIED_RULES);
-    parsed.settings.householdName = BRAND_NAME;
-    parsed.settings.members = !parsed.settings.members || parsed.settings.members === "Claes" ? "Claes" : parsed.settings.members;
-    parsed.settings.selectedMonth ||= currentMonthKey();
-    parsed.settings.periodMode ||= "month";
-    parsed.settings.periodFrom ||= uiMonthStart(parsed.settings.selectedMonth);
-    parsed.settings.periodTo ||= uiMonthEnd(parsed.settings.selectedMonth);
-    parsed.settings.dateBasis ||= "economic";
-    parsed.settings.privacyMode = Boolean(parsed.settings.privacyMode);
-    parsed.settings.wealth = normalizeWealthSettings(parsed.settings.wealth);
-    parsed.movingProject = normalizeMovingProject(parsed.movingProject);
-    return parsed;
+    return normalizeStateForRuntime(JSON.parse(raw));
   } catch (error) {
     console.warn("Kunne ikke læse gemte data", error);
     return createSeedState();
   }
+}
+
+function normalizeStateForRuntime(parsed) {
+  if (!parsed || parsed.version !== 1) return createSeedState();
+  parsed.settings ||= {};
+  parsed.accounts ||= [];
+  parsed.categories ||= [];
+  parsed.rules ||= [];
+  parsed.transactions ||= [];
+  parsed.bankSync ||= { accounts: [], accountMappings: {}, lastSyncAt: "", config: null };
+  parsed.bankSync.enableBanking ||= { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 };
+  parsed.transactions = parsed.transactions
+    .filter((tx) => tx.source !== "demo")
+    .map((tx) => ({ note: "", relationType: "", relationKey: "", linkedTransactionId: "", matchGroupId: "", ...tx, categoryId: simplifyCategoryId(tx.categoryId) }));
+  parsed.accounts = removeUnusedDemoAccounts(parsed.accounts, parsed.transactions);
+  const defaults = createSeedState();
+  parsed.accounts = mergeAccountsByName(parsed.accounts, defaults.accounts);
+  if (!parsed.accounts.length) parsed.accounts = defaults.accounts;
+  parsed.categories = SIMPLIFIED_CATEGORIES.map((category) => ({ ...category }));
+  parsed.rules = mergeRulesByKeyword(parsed.rules, SIMPLIFIED_RULES);
+  parsed.settings.householdName = BRAND_NAME;
+  parsed.settings.members = !parsed.settings.members || parsed.settings.members === "Claes" ? "Claes" : parsed.settings.members;
+  parsed.settings.selectedMonth ||= currentMonthKey();
+  parsed.settings.periodMode ||= "month";
+  parsed.settings.periodFrom ||= uiMonthStart(parsed.settings.selectedMonth);
+  parsed.settings.periodTo ||= uiMonthEnd(parsed.settings.selectedMonth);
+  parsed.settings.dateBasis ||= "economic";
+  parsed.settings.privacyMode = Boolean(parsed.settings.privacyMode);
+  parsed.settings.wealth = normalizeWealthSettings(parsed.settings.wealth);
+  parsed.movingProject = normalizeMovingProject(parsed.movingProject);
+  return parsed;
 }
 
 function prepareStateForSave() {
@@ -441,9 +444,13 @@ async function hydrateStateFromServer() {
     const localSaved = new Date(state.settings?.serverSavedAt || state.bankSync?.enableBanking?.lastSyncAt || 0).getTime();
     const serverSaved = new Date(data.savedAt || serverState.settings?.serverSavedAt || 0).getTime();
     if (serverCount < localCount && serverSaved <= localSaved) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serverState));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serverState));
+    } catch (storageError) {
+      console.warn("Kunne ikke cache server-state lokalt", storageError);
+    }
     const keepView = ui.view;
-    state = loadState();
+    state = normalizeStateForRuntime(JSON.parse(JSON.stringify(serverState)));
     ui.view = keepView;
     hydratePeriodUiFromState();
     markServerStateFingerprint(state);
