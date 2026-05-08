@@ -1252,20 +1252,7 @@ function renderWealthView() {
   const summary = getWealthSummary();
   return `
     ${renderWealthHistoryHero(summary)}
-    <section class="wealth-layout">
-      <aside class="wealth-overview-panel" aria-label="Samlet formue">
-        <p class="eyebrow">Samlet formue</p>
-        <h2>${formatCurrency(summary.total)}</h2>
-        <p>Kontanter, boligformue, investeringer og pension. Småpositioner skjules i listerne, men tæller med i totalen.</p>
-        <div class="wealth-stack">
-          ${renderWealthLine("Kontanter", summary.cash, summary.cashAccount?.name || "Primær lønkonto")}
-          ${renderWealthLine("Boligformue", summary.propertyEquity, `${formatCurrency(summary.propertyValue)} vurdering · ${formatCurrency(summary.propertyDebt)} restgæld`)}
-          ${renderWealthLine("Aktier", summary.deltaPortfolio ? (summary.deltaPortfolio.summary.stockMarketValueDkk || summary.deltaPortfolio.summary.stockCostDkk || 0) : 0, summary.deltaPortfolio ? `Delta · ${summary.deltaPortfolio.summary.stockPositions || 0} positioner` : "Importer Delta CSV", !summary.deltaPortfolio)}
-          ${renderWealthLine("Crypto", summary.deltaPortfolio ? (summary.deltaPortfolio.summary.cryptoMarketValueDkk || summary.deltaPortfolio.summary.cryptoCostDkk || 0) : 0, summary.deltaPortfolio ? `Delta · ${summary.deltaPortfolio.summary.cryptoPositions || 0} positioner` : "Importer Delta CSV", !summary.deltaPortfolio)}
-          ${renderWealthLine("Pension", summary.pension, summary.pensionInfo?.provider || "Pension", !summary.pension)}
-        </div>
-      </aside>
-
+    <section class="wealth-layout wealth-layout-single">
       <div class="wealth-main-panel">
         <section class="panel pad wealth-section">
           <div class="section-heading clean-heading">

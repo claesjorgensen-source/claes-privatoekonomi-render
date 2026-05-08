@@ -1333,6 +1333,10 @@ h3 {
   align-items: start;
 }
 
+.wealth-layout-single {
+  grid-template-columns: 1fr;
+}
+
 .wealth-overview-panel {
   position: sticky;
   top: 24px;
