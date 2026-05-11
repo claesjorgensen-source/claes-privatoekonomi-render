@@ -3849,7 +3849,7 @@ function renderRecurringReport() {
       </div>
     </section>
 
-    ${plan.items.length ? renderFixedExpensePlanPanel(plan) : ""}
+    ${plan.items.length ? renderFixedExpensePlanPanel(plan, sourceAccount) : ""}
 
     <section class="section panel pad fixed-spend-panel">
       <div class="section-heading clean-heading"><div><h2>Kontrol fra lønkontoen</h2><p>Automatisk fundne gentagne betalinger fra ${escapeHtml(sourceAccount?.name || "lønkontoen")}. Interne faste overførsler er med her, fordi de er dine reelle månedlige forpligtelser.</p></div></div>
@@ -3896,10 +3896,13 @@ function fixedSpendSubline(analysis, plan = { items: [], total: 0, latestActual:
   return `Fast månedlig base er estimeret til ${formatCurrency(analysis.monthlyBase)}.`;
 }
 
-function renderFixedExpensePlanPanel(plan) {
+function renderFixedExpensePlanPanel(plan, sourceAccount) {
   return `
     <section class="section panel pad fixed-spend-panel">
       <div class="section-heading clean-heading"><div><h2>Dine faste omkostninger</h2><p>Den manuelle faste base, som løber fra lønkontoen. Bruges som sandhed, mens automatisk genkendelse fungerer som kontrol.</p></div></div>
+      <label class="field fixed-expense-source"><span>Faste betales fra</span><select class="input" id="fixed-expense-source-account">
+        ${state.accounts.map((account) => `<option value="${escapeHtml(account.id)}" ${account.id === sourceAccount?.id ? "selected" : ""}>${escapeHtml(account.name)}</option>`).join("")}
+      </select></label>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Post</th><th>Kategori</th><th>Plan/md.</th><th>Fundet ${escapeHtml(shortMonthLabel(plan.latestMonth))}</th><th>Status</th><th>Note</th></tr></thead>
@@ -3908,7 +3911,7 @@ function renderFixedExpensePlanPanel(plan) {
               <tr>
                 <td><strong>${escapeHtml(row.name)}</strong></td>
                 <td><span class="category-chip" style="--dot:${escapeHtml(row.category?.color || "#999")}">${escapeHtml(row.category?.name || "Intern")}</span></td>
-                <td class="amount amount-negative">${formatCurrency(row.amount)}</td>
+                <td><input class="input fixed-expense-input" inputmode="decimal" data-fixed-expense="${escapeHtml(row.id)}" data-fixed-field="amount" value="${escapeHtml(formatAmountInput(row.amount))}" ${privacyInputAttrs()} /></td>
                 <td class="amount ${row.latestActual ? "amount-negative" : ""}">${row.latestActual ? formatCurrency(row.latestActual) : "—"}</td>
                 <td>${renderFixedExpenseStatusBadge(row)}</td>
                 <td><small>${escapeHtml(row.note || row.keywords.join(" · ") || "—")}</small></td>
@@ -6998,6 +7001,34 @@ async function handleChange(event) {
     saveState();
     render();
     notify("Primær lønkonto til formueoverblik blev opdateret.");
+    return;
+  }
+
+  if (target.id === "fixed-expense-source-account") {
+    const fixed = getFixedExpenseSettings();
+    fixed.sourceAccountId = target.value;
+    saveState();
+    render();
+    notify("Lønkonto for faste omkostninger blev opdateret.");
+    return;
+  }
+
+  if (target.dataset.fixedExpense && target.dataset.fixedField) {
+    const fixed = getFixedExpenseSettings();
+    const item = fixed.items.find((entry) => entry.id === target.dataset.fixedExpense);
+    if (!item) return;
+    if (target.dataset.fixedField === "amount") {
+      const amount = parseAmount(target.value);
+      if (!Number.isFinite(amount)) {
+        notify("Beløbet kunne ikke læses. Brug fx 1.234 eller 1.234,56.", "danger");
+        render();
+        return;
+      }
+      item.amount = Math.max(0, amount);
+    }
+    saveState();
+    render();
+    notify("Fast omkostning blev opdateret.");
     return;
   }
 

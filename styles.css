@@ -2513,6 +2513,16 @@ h3 {
   vertical-align: middle;
 }
 
+.fixed-expense-source {
+  max-width: 360px;
+  margin: 0 0 16px;
+}
+
+.fixed-expense-input {
+  max-width: 9rem;
+  text-align: right;
+}
+
 .category-chip,
 .status-badge {
   display: inline-flex;
