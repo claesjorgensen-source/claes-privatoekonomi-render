@@ -14,7 +14,7 @@ const NAV_ITEMS = [
 ];
 
 const DEFAULT_WEALTH_PROPERTIES = [
-  { id: "apartment", name: "Lejlighed", subtitle: "Bolig", estimatedValue: 0, debt: 0 },
+  { id: "apartment", name: "Lejlighed", subtitle: "Bispeengen", estimatedValue: 0, debt: 0 },
   { id: "summerhouse", name: "Sommerhus", subtitle: "", estimatedValue: 0, debt: 0 },
 ];
 
@@ -157,11 +157,12 @@ const MCC_CATEGORY_RULES = [
 
 const INTELLIGENT_CATEGORY_RULES = [
   { pattern: /(løn|loen|salary|gage|honorar|udbetaling fra arbejdsgiver)/, categoryId: "cat-salary", reason: "Teksten ligner indkomst.", confidence: 96 },
-  { pattern: /(totalkredit|realkredit)/, categoryId: "cat-housing", reason: "Ligner realkredit/bolig og fordeles over tre måneder.", confidence: 90 },
+  { pattern: /(totalkredit.*969343877|969343877.*totalkredit)/, categoryId: "cat-housing", reason: "Totalkredit aftale 969343877 hører til helårsboligen og fordeles over tre måneder.", confidence: 98 },
+  { pattern: /(totalkredit.*012810021|012810021.*totalkredit)/, categoryId: "cat-summerhouse", reason: "Totalkredit aftale 012810021 hører til sommerhuset og fordeles over tre måneder.", confidence: 98 },
   { pattern: /(til faelles|til fælles|fælles forbrugskonto|faelles forbrugskonto|fælles budget|faelles budget|til sommerhuskonto|sommerhuskonto|til dankonto|egen konto|mellem konti|kontooverforsel|kontooverførsel|(^|\s)forbrug(\s|$)|forbrug på mastercard)/, categoryId: "cat-transfer", relationType: "intern", reason: "Ligner intern kontooverførsel.", confidence: 92 },
   { pattern: /(bank norwegian|overfort til lan|overført til lån|laan|lån forfaldsdato|afdrag|kreditkort|forbrugskredit)/, categoryId: "cat-transfer", relationType: "intern", reason: "Ligner betaling til lån/kredit eller intern gældsflytning.", confidence: 82 },
-  { pattern: /(pluto|aktier|saxo|nordnet|depot|invester|investering|etf|fond|pension)/, categoryId: "cat-savings", relationType: "investering", reason: "Ligner investering eller formueflytning.", confidence: 95 },
-  { pattern: /(opsparing|sparekonto|overfort til indlan|overført til indlån|automatisk saldoflytning|depotkonto)/, categoryId: "cat-savings", relationType: "opsparing", reason: "Ligner opsparing eller flytning mellem egne konti.", confidence: 94 },
+  { pattern: /(pluto|aktier|saxo|nordnet|depot|invester|investering|etf|fond|pension|solvej)/, categoryId: "cat-savings", relationType: "investering", reason: "Ligner investering eller formueflytning.", confidence: 95 },
+  { pattern: /(opsparing|sparekonto|overfort til indlan|overført til indlån|automatisk saldoflytning|karla depot|depotkonto)/, categoryId: "cat-savings", relationType: "opsparing", reason: "Ligner opsparing eller flytning mellem egne konti.", confidence: 94 },
   { pattern: /(mobilepay|udlæg|udlaeg|refusion|tilbagebetaling|tilbagebetalt|skylder|vipps)/, categoryId: "cat-reimburse", relationType: "udlæg", reason: "Ligner udlæg, MobilePay eller refusion.", confidence: 88 },
   { pattern: /(netto|rema|foetex|føtex|meny|superbrugsen|brugsen|coop|365 |lundtoftegade|skagenfood|odden fisk|kiosken paa odden|kiosken på odden|dagli.?brugsen|irama|lidl|aldi|bilka|nemlig|aarstiderne|fødevarer|fodevarer)/, categoryId: "cat-groceries", reason: "Ligner dagligvarer eller husholdning.", confidence: 92 },
   { pattern: /(wolt|uber \*eats|uber eats|mealo|restaurant|bistro|cafe|café|pastis|donda|fojetta|polly|silberbauer|fresto|havnebyens kaffebar|20 grams|kaffe|takeaway|bar |vin |bichel|kjær & sommerfeldt|sommerfeldt|lille fugl|spotify|netflix|youtube|google \*youtube|apple\.com\/bill|itunes)/, categoryId: "cat-lifestyle", reason: "Ligner restaurant, abonnement eller fritid.", confidence: 86 },
@@ -169,8 +170,9 @@ const INTELLIGENT_CATEGORY_RULES = [
   { pattern: /(vuggestue|institution|skole|børnehave|bornehave|hemmingsenkids|kids|legetøj|legetoj|faraos|karla)/, categoryId: "cat-family", reason: "Ligner familie, børn eller institution.", confidence: 84 },
   { pattern: /(matas|apotek|læge|laege|tandlæge|tandlaege|sundhed|sportinghealthclub|health club|fitness|medicin)/, categoryId: "cat-health", reason: "Ligner sundhed, apotek eller træning.", confidence: 86 },
   { pattern: /(uniqlo|magasin|normal studios|paloma wool|boss store|danskshop|boxnow|matas\.dk|blizzard|tipster|inmotion|ezanza|lavprisel|shop|webshop|notanr|pas normal|tøj|toej|clothing|design|interiør|interior|bygma)/, categoryId: "cat-shopping", reason: "Ligner køb, shopping eller diverse forbrug.", confidence: 70 },
-  { pattern: /(husleje|bolig|brf|ejerforening|vandværk|vandvaerk|kommune|norlys|energi|el |gas|varme|forsikring|letsikring|præmiebetaling|praemiebetaling|realkredit|grundskyld|ejendomsskat|adm\.service fyn)/, categoryId: "cat-housing", reason: "Ligner bolig, regning, forsikring eller kommune.", confidence: 86 },
-  { pattern: /(odsherred forsyning|odsherred kommune|sommerhus|sommerhuskonto|brf)/, categoryId: "cat-summerhouse", reason: "Ligner sommerhusrelateret bolig-/ejendomsudgift.", confidence: 84 },
+  { pattern: /(husleje|bolig|brf|ejerforening|vandværk|vandvaerk|frederiksberg komm|norlys|energi|el |gas|varme|forsikring|letsikring|præmiebetaling|praemiebetaling|realkredit|grundskyld|ejendomsskat|bispeengen)/, categoryId: "cat-housing", reason: "Ligner bolig, regning, forsikring eller kommune.", confidence: 86 },
+  { pattern: /(adm\.service fyn.*017859237|017859237.*adm\.service fyn)/, categoryId: "cat-housing", reason: "ADM.SERVICE FYN aftale 017859237 hører til helårsboligen.", confidence: 98 },
+  { pattern: /(adm\.service fyn.*017859238|017859238.*adm\.service fyn|odsherred forsyning|odsherred kommune|yderby|sommerhus|sommerhuskonto|brf sb odden)/, categoryId: "cat-summerhouse", reason: "Ligner sommerhusrelateret bolig-/ejendomsudgift.", confidence: 84 },
 ];
 
 const SIMPLIFIED_RULES = [
@@ -380,6 +382,7 @@ function normalizeStateForRuntime(parsed) {
   parsed.settings.dateBasis ||= "economic";
   parsed.settings.privacyMode = Boolean(parsed.settings.privacyMode);
   parsed.settings.wealth = normalizeWealthSettings(parsed.settings.wealth);
+  parsed.settings.fixedExpenses = normalizeFixedExpenseSettings(parsed.settings.fixedExpenses);
   parsed.movingProject = normalizeMovingProject(parsed.movingProject);
   return parsed;
 }
@@ -573,7 +576,7 @@ function createSeedState() {
     },
     accounts: [
       { id: "acc-sparekassen", name: "Sparekassen Kronjylland", type: "Bankkonto", balance: 0 },
-      { id: "acc-bolig", name: "Boligkonto", type: "Boligkonto", balance: 0 },
+      { id: "acc-bolig-bispeengen", name: "Boligkonto Bispeengen 9", type: "Boligkonto", balance: 0 },
       { id: "acc-faelles-forbrug", name: "Fælles forbrugskonto", type: "Fælleskonto", balance: 0 },
       { id: "acc-faelles-sommerhus", name: "Fælles sommerhuskonto", type: "Sommerhus", balance: 0 },
       { id: "acc-faellesbudget", name: "Fællesbudget konto", type: "Budgetkonto", balance: 0 },
@@ -1124,6 +1127,34 @@ function getLiquidAssetsSummary() {
   const accounts = state.accounts || [];
   const total = accounts.reduce((sum, account) => sum + Number(account.balance || 0), 0);
   return { total, count: accounts.length, accounts };
+}
+
+function normalizeFixedExpenseSettings(settings = {}) {
+  return {
+    sourceAccountId: settings.sourceAccountId || "",
+    items: (Array.isArray(settings.items) ? settings.items : [])
+      .map((item) => ({
+        id: String(item.id || uid("fixed")),
+        name: String(item.name || "Fast udgift").trim() || "Fast udgift",
+        amount: Math.max(0, Number(item.amount || 0) || 0),
+        categoryId: categoryById(item.categoryId)?.id || "cat-transfer",
+        keywords: Array.isArray(item.keywords) ? item.keywords.map((keyword) => String(keyword || "").trim()).filter(Boolean).slice(0, 8) : [],
+        note: String(item.note || "").trim(),
+        active: item.active !== false,
+      }))
+      .filter((item) => item.amount > 0 || item.name),
+  };
+}
+
+function getFixedExpenseSettings() {
+  state.settings.fixedExpenses = normalizeFixedExpenseSettings(state.settings.fixedExpenses);
+  if (!state.settings.fixedExpenses.sourceAccountId) state.settings.fixedExpenses.sourceAccountId = getPrimaryCashAccount()?.id || primaryIncomeAccountId();
+  return state.settings.fixedExpenses;
+}
+
+function getFixedExpenseSourceAccount() {
+  const settings = getFixedExpenseSettings();
+  return accountById(settings.sourceAccountId) || getPrimaryCashAccount() || null;
 }
 
 function normalizeWealthSettings(wealth = {}) {
@@ -3786,25 +3817,30 @@ function renderMerchantsDeepReport() {
 }
 
 function renderRecurringReport() {
-  const analysis = getRecurringSpendAnalysis();
+  const fixedSettings = getFixedExpenseSettings();
+  const sourceAccount = getFixedExpenseSourceAccount();
+  const analysis = getRecurringSpendAnalysis({ sourceAccountId: sourceAccount?.id || "", includeTransfers: true });
+  const plan = getFixedExpensePlanData(fixedSettings, analysis);
   const rows = analysis.rows;
-  if (!rows.length) return `<section class="section panel pad"><div class="empty-state"><strong>Ingen faste mønstre endnu</strong><span>Der skal flere måneder til for at finde gentagne udgifter.</span></div></section>`;
+  if (!rows.length && !plan.items.length) return `<section class="section panel pad"><div class="empty-state"><strong>Ingen faste mønstre endnu</strong><span>Der skal flere måneder til for at finde gentagne udgifter.</span></div></section>`;
+  const monthlyBase = plan.total || analysis.monthlyBase;
+  const categoryRows = plan.categoryRows.length ? plan.categoryRows : analysis.categoryRows;
   return `
     <section class="metric-band section" aria-label="Faste udgifter">
-      <div class="metric negative"><span>Fast månedlig base</span><strong>${formatCurrency(analysis.monthlyBase)}</strong><small>${analysis.activeRows.length} aktive mønstre</small></div>
-      <div class="metric"><span>Årligt niveau</span><strong>${formatCurrency(analysis.yearlyRunRate)}</strong><small>Hvis basen fortsætter</small></div>
-      <div class="metric ${analysis.changedRows.length ? "negative" : "positive"}"><span>Steget i pris</span><strong>${analysis.changedRows.length}</strong><small>Mod seneste normalniveau</small></div>
-      <div class="metric"><span>Nye mønstre</span><strong>${analysis.newRows.length}</strong><small>Startet de seneste 3 mdr.</small></div>
+      <div class="metric negative"><span>Fast månedlig base</span><strong>${formatCurrency(monthlyBase)}</strong><small>${plan.items.length ? `${plan.items.length} faste poster` : `${analysis.activeRows.length} aktive mønstre`}</small></div>
+      <div class="metric"><span>Årligt niveau</span><strong>${formatCurrency(monthlyBase * 12)}</strong><small>Baseret på lønkontoen</small></div>
+      <div class="metric ${Math.abs(plan.latestDelta) > 5 ? "negative" : "positive"}"><span>Fundet senest</span><strong>${formatCurrency(plan.latestActual)}</strong><small>${plan.items.length ? `Afvigelse ${formatSignedCurrency(plan.latestDelta)}` : "Automatisk mønster"}</small></div>
+      <div class="metric"><span>Lønkonto</span><strong>${escapeHtml(sourceAccount?.name || "—")}</strong><small>Faste betalinger måles herfra</small></div>
     </section>
 
     <section class="fixed-spend-command section">
       <div>
-        <p class="eyebrow">Løbende forbrug · ${analysis.months.length} måneder</p>
-        <h2>${escapeHtml(fixedSpendHeadline(analysis))}</h2>
-        <p>${escapeHtml(fixedSpendSubline(analysis))}</p>
+        <p class="eyebrow">Faste udgifter · ${escapeHtml(sourceAccount?.name || "lønkonto")}</p>
+        <h2>${escapeHtml(fixedSpendHeadline(analysis, plan))}</h2>
+        <p>${escapeHtml(fixedSpendSubline(analysis, plan))}</p>
       </div>
       <div class="fixed-spend-category-stack">
-        ${analysis.categoryRows.slice(0, 6).map((row) => `
+        ${categoryRows.slice(0, 6).map((row) => `
           <button type="button" data-action="open-drilldown" data-drilldown="category" data-id="${escapeHtml(row.category.id)}">
             <span><i style="--dot:${escapeHtml(row.category.color)}"></i>${escapeHtml(row.category.name)}</span>
             <strong>${formatCurrency(row.monthlyEstimate)}</strong>
@@ -3813,8 +3849,10 @@ function renderRecurringReport() {
       </div>
     </section>
 
+    ${plan.items.length ? renderFixedExpensePlanPanel(plan) : ""}
+
     <section class="section panel pad fixed-spend-panel">
-      <div class="section-heading clean-heading"><div><h2>Faste udgifter og gentagne betalinger</h2><p>Modtagere grupperes pr. kategori, så bolig, børn, transport, abonnementer og øvrigt forbrug kan følges separat.</p></div></div>
+      <div class="section-heading clean-heading"><div><h2>Kontrol fra lønkontoen</h2><p>Automatisk fundne gentagne betalinger fra ${escapeHtml(sourceAccount?.name || "lønkontoen")}. Interne faste overførsler er med her, fordi de er dine reelle månedlige forpligtelser.</p></div></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Modtager</th><th>Kategori</th><th>Frekvens</th><th>Normal/md.</th><th>Senest</th><th>Status</th><th>Måneder</th></tr></thead>
@@ -3842,18 +3880,51 @@ function renderRecurringReport() {
   `;
 }
 
-function fixedSpendHeadline(analysis) {
+function fixedSpendHeadline(analysis, plan = { items: [], total: 0 }) {
+  if (plan.items?.length) return `Din faste base er ${formatCurrency(plan.total)} pr. måned`;
   if (analysis.changedRows[0]) return `${analysis.changedRows[0].name} er steget mest i den faste base`;
   if (analysis.categoryRows[0]) return `${analysis.categoryRows[0].category.name} fylder mest i de faste udgifter`;
   return "De faste udgifter er kortlagt på tværs af kategorier";
 }
 
-function fixedSpendSubline(analysis) {
+function fixedSpendSubline(analysis, plan = { items: [], total: 0, latestActual: 0, latestDelta: 0, latestMonth: "" }) {
+  if (plan.items?.length) return `${plan.items.length} faste betalinger fra lønkontoen. I ${monthLabel(plan.latestMonth)} er der fundet ${formatCurrency(plan.latestActual)} mod plan ${formatCurrency(plan.total)}.`;
   const top = analysis.categoryRows[0];
   const changed = analysis.changedRows[0];
   if (changed) return `${changed.name} ligger ${formatSignedCurrency(changed.delta)} over normalniveauet. Fast månedlig base er ${formatCurrency(analysis.monthlyBase)}.`;
   if (top) return `${top.category.name} står for ${formatCurrency(top.monthlyEstimate)} pr. måned, svarende til ${formatPercent(top.share)} af den faste base.`;
   return `Fast månedlig base er estimeret til ${formatCurrency(analysis.monthlyBase)}.`;
+}
+
+function renderFixedExpensePlanPanel(plan) {
+  return `
+    <section class="section panel pad fixed-spend-panel">
+      <div class="section-heading clean-heading"><div><h2>Dine faste omkostninger</h2><p>Den manuelle faste base, som løber fra lønkontoen. Bruges som sandhed, mens automatisk genkendelse fungerer som kontrol.</p></div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Post</th><th>Kategori</th><th>Plan/md.</th><th>Fundet ${escapeHtml(shortMonthLabel(plan.latestMonth))}</th><th>Status</th><th>Note</th></tr></thead>
+          <tbody>
+            ${plan.items.map((row) => `
+              <tr>
+                <td><strong>${escapeHtml(row.name)}</strong></td>
+                <td><span class="category-chip" style="--dot:${escapeHtml(row.category?.color || "#999")}">${escapeHtml(row.category?.name || "Intern")}</span></td>
+                <td class="amount amount-negative">${formatCurrency(row.amount)}</td>
+                <td class="amount ${row.latestActual ? "amount-negative" : ""}">${row.latestActual ? formatCurrency(row.latestActual) : "—"}</td>
+                <td>${renderFixedExpenseStatusBadge(row)}</td>
+                <td><small>${escapeHtml(row.note || row.keywords.join(" · ") || "—")}</small></td>
+              </tr>`).join("")}
+          </tbody>
+          <tfoot><tr><th colspan="2">I alt</th><th class="amount amount-negative">${formatCurrency(plan.total)}</th><th class="amount amount-negative">${formatCurrency(plan.latestActual)}</th><th colspan="2">${formatSignedCurrency(plan.latestDelta)}</th></tr></tfoot>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderFixedExpenseStatusBadge(row) {
+  const labels = { ok: "OK", missing: "Mangler", partial: "Delvis", high: "Højere" };
+  const tone = row.status === "ok" ? "positive" : row.status === "missing" || row.status === "high" ? "negative" : "muted";
+  return `<span class="status-badge ${tone}">${escapeHtml(labels[row.status] || "Tjek")}</span>`;
 }
 
 function renderRecurringStatusBadge(row) {
@@ -3902,14 +3973,17 @@ function getRecurringRows() {
   return getRecurringSpendAnalysis().rows;
 }
 
-function getRecurringSpendAnalysis({ monthCount = 12 } = {}) {
+function getRecurringSpendAnalysis({ monthCount = 12, sourceAccountId = "", includeTransfers = false } = {}) {
   const selectedMonth = ui.month || currentMonthKey();
   const months = lastMonths(selectedMonth, monthCount);
   const grouped = new Map();
+  const sourceRows = [];
   for (const month of months) {
     for (const tx of getReportingTransactionsForMonth(month)) {
-      if (ui.reportAccountFilter !== "all" && tx.accountId !== ui.reportAccountFilter) continue;
-      if (!isReportExpense(tx)) continue;
+      if (sourceAccountId && tx.accountId !== sourceAccountId) continue;
+      if (!sourceAccountId && ui.reportAccountFilter !== "all" && tx.accountId !== ui.reportAccountFilter) continue;
+      if (includeTransfers ? !isFixedExpenseOutflowCandidate(tx) : !isReportExpense(tx)) continue;
+      sourceRows.push(tx);
       const name = merchantName(tx.description);
       const category = categoryById(tx.categoryId);
       const key = `${tx.categoryId || "cat-other"}::${normalize(name)}`;
@@ -3960,7 +4034,62 @@ function getRecurringSpendAnalysis({ monthCount = 12 } = {}) {
     .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate);
   const changedRows = activeRows.filter((row) => row.status === "increased").sort((a, b) => b.delta - a.delta);
   const newRows = activeRows.filter((row) => row.status === "new");
-  return { rows, activeRows, categoryRows, changedRows, newRows, monthlyBase, yearlyRunRate: monthlyBase * 12, months };
+  return { rows, activeRows, categoryRows, changedRows, newRows, monthlyBase, yearlyRunRate: monthlyBase * 12, months, sourceRows };
+}
+
+function isFixedExpenseOutflowCandidate(tx) {
+  if (Number(tx?.amount || 0) >= 0) return false;
+  if (tx?.categoryId === "cat-reimburse") return false;
+  const text = normalize(`${tx?.description || ""} ${tx?.note || ""}`);
+  if (/mobilepay/.test(text) && Math.abs(Number(tx.amount || 0)) < 1000) return false;
+  return true;
+}
+
+function getFixedExpensePlanData(settings, analysis) {
+  const items = (settings.items || []).filter((item) => item.active !== false);
+  const latestMonth = latestFixedExpenseCheckMonth(analysis.months);
+  const rows = items.map((item) => {
+    const monthAmounts = Object.fromEntries(analysis.months.map((month) => [month, 0]));
+    for (const tx of analysis.sourceRows || []) {
+      if (!fixedExpenseItemMatchesTx(item, tx)) continue;
+      monthAmounts[tx.reportMonth || transactionMonthForView(tx)] = (monthAmounts[tx.reportMonth || transactionMonthForView(tx)] || 0) + Math.abs(Number(tx.amount || 0));
+    }
+    const latestActual = Number(monthAmounts[latestMonth] || 0);
+    const amount = Number(item.amount || 0);
+    const diff = latestActual - amount;
+    const status = latestActual <= 0 ? "missing" : Math.abs(diff) <= Math.max(5, amount * 0.03) ? "ok" : latestActual < amount ? "partial" : "high";
+    return { ...item, category: categoryById(item.categoryId), monthAmounts, latestActual, diff, status };
+  });
+  const total = rows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const latestActual = rows.reduce((sum, item) => sum + Number(item.latestActual || 0), 0);
+  const categoryMap = new Map();
+  for (const item of rows) {
+    const category = item.category || categoryById(item.categoryId) || { id: item.categoryId || "cat-transfer", name: "Intern", color: "#6f746c" };
+    const entry = categoryMap.get(category.id) || { category, monthlyEstimate: 0, count: 0 };
+    entry.monthlyEstimate += Number(item.amount || 0);
+    entry.count += 1;
+    categoryMap.set(category.id, entry);
+  }
+  const categoryRows = Array.from(categoryMap.values())
+    .map((row) => ({ ...row, share: total ? row.monthlyEstimate / total : 0 }))
+    .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate);
+  return { items: rows, total, latestActual, latestDelta: latestActual - total, latestMonth, categoryRows };
+}
+
+function latestFixedExpenseCheckMonth(months = []) {
+  const latest = months.at(-1) || ui.month || currentMonthKey();
+  if (latest === currentMonthKey() && todayISO() < uiMonthEnd(latest)) return months.at(-2) || latest;
+  return latest;
+}
+
+function fixedExpenseItemMatchesTx(item, tx) {
+  const text = normalize(`${tx?.description || ""} ${tx?.note || ""} ${tx?.relationKey || ""} ${merchantName(tx?.description || "")}`);
+  const terms = (item.keywords?.length ? item.keywords : [item.name]).map(normalize).filter(Boolean);
+  if (!terms.some((term) => text.includes(term))) return false;
+  const expected = Number(item.amount || 0);
+  if (!expected) return true;
+  const amount = Math.abs(Number(tx?.amount || 0));
+  return Math.abs(amount - expected) <= Math.max(5, expected * 0.03);
 }
 
 function enrichRecurringRow(row, analysisMonths) {
@@ -4372,7 +4501,7 @@ function renderCleanupView() {
         <div class="section-heading clean-heading">
           <div>
             <h2>Boligposter fordelt over 3 måneder</h2>
-            <p>Realkredit og ejerforening tæller som 1/3 i hver af de forgangne tre måneder.</p>
+            <p>Totalkredit og E/F Bispeengen tæller som 1/3 i hver af de forgangne tre måneder.</p>
           </div>
         </div>
         ${renderAccrualSummary(accrualRows)}
@@ -4728,7 +4857,7 @@ function getAccrualSummaryRows() {
 
 function renderAccrualSummary(rows) {
   if (!rows.length) {
-    return `<div class="empty-state compact-empty"><strong>Ingen kvartalsfordeling i perioden</strong><span>Når realkredit eller ejerforening rammer perioden, vises 1/3-fordelingen her.</span></div>`;
+    return `<div class="empty-state compact-empty"><strong>Ingen kvartalsfordeling i perioden</strong><span>Når Totalkredit eller E/F Bispeengen rammer perioden, vises 1/3-fordelingen her.</span></div>`;
   }
   return `
     <div class="accrual-list">
@@ -7179,7 +7308,7 @@ function getEconomicPeriodInfo(tx, { ignoreLock = false } = {}) {
   const isSalary = amount > 0 && (tx?.categoryId === "cat-salary" || /\b(lonoverforsel|lønoverførsel|loenoverfoersel|løn|loen|salary)\b/.test(text));
   if (isSalary && day >= 25) return periodInfo(bankMonth, nextMonth, "salary-next-month", 98, "Løn sidst i måneden hører til næste økonomiske måned.");
 
-  const fixedMonthEnd = day >= 25 && /(forsikring|vuggestue|institution|budget|faelles|fælles|sommerhuskonto|indbetaling|overfort fra kredit|overført fra kredit|praemiebetaling|præmiebetaling)/.test(text);
+  const fixedMonthEnd = day >= 25 && /(forsikring|vuggestue|institution|\bkarla\b|budget|faelles|fælles|sommerhuskonto|claes indbetaling|overfort fra laura|overført fra laura|overfort fra kredit|overført fra kredit|praemiebetaling|præmiebetaling)/.test(text);
   if (fixedMonthEnd) return periodInfo(bankMonth, nextMonth, "fixed-month-end-next-month", 88, "Fast månedsskiftebetaling periodiseres til næste måned.");
 
   const transferMonthEnd = day >= 25 && (category?.kind === "transfer" || /(overfort til|overført til|til faelles|til fælles|til sommerhuskonto|egen konto|indlan|indlån|bank norwegian)/.test(text));
@@ -7221,7 +7350,7 @@ function getAccrualAllocation(tx) {
   const text = normalize(`${tx?.description || ""} ${accountById(tx?.accountId)?.name || ""}`);
   if (!(Number(tx?.amount || 0) < 0)) return null;
   const isQuarterlyLoan = /(totalkredit|realkredit|realkreditlån|realkreditlaan)/.test(text);
-  const isQuarterlyCommon = /(e\/f|ef |fællesudgift|faellesudgift|ejerforening)/.test(text);
+  const isQuarterlyCommon = /(e\/f bispeengen|ef bispeengen|fællesudgift|faellesudgift|ejerforening)/.test(text);
   if (!isQuarterlyLoan && !isQuarterlyCommon) return null;
   const anchor = toMonthKey(tx.date);
   const months = [shiftMonth(anchor, -2), shiftMonth(anchor, -1), anchor];
