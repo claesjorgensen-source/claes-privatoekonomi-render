@@ -19,6 +19,16 @@ const DEFAULT_WEALTH_PROPERTIES = [
 ];
 
 const DEFAULT_WEALTH_PENSION = { provider: "PFA", value: 0 };
+const DEFAULT_WEALTH_BUFFER_STRATEGY = {
+  mode: "invested",
+  targetExposurePct: 100,
+  minimumCashBuffer: 0,
+  targetCashBuffer: 0,
+  primaryCashMinimum: 0,
+  stockHaircutPct: 60,
+  cryptoHaircutPct: 25,
+  notes: "",
+};
 
 const MOVING_CATEGORIES = [
   { id: "flytning", label: "Flytning", tone: "sage" },
@@ -1157,6 +1167,23 @@ function getFixedExpenseSourceAccount() {
   return accountById(settings.sourceAccountId) || getPrimaryCashAccount() || null;
 }
 
+function normalizeWealthBufferStrategy(strategy = {}) {
+  const clampPct = (value, fallback) => Math.max(0, Math.min(100, Number(value ?? fallback) || 0));
+  const amount = (value, fallback = 0) => Math.max(0, Number(value ?? fallback) || 0);
+  return {
+    ...DEFAULT_WEALTH_BUFFER_STRATEGY,
+    ...(strategy || {}),
+    mode: ["invested", "balanced", "cash"].includes(strategy?.mode) ? strategy.mode : DEFAULT_WEALTH_BUFFER_STRATEGY.mode,
+    targetExposurePct: clampPct(strategy?.targetExposurePct, DEFAULT_WEALTH_BUFFER_STRATEGY.targetExposurePct),
+    minimumCashBuffer: amount(strategy?.minimumCashBuffer, DEFAULT_WEALTH_BUFFER_STRATEGY.minimumCashBuffer),
+    targetCashBuffer: amount(strategy?.targetCashBuffer, DEFAULT_WEALTH_BUFFER_STRATEGY.targetCashBuffer),
+    primaryCashMinimum: amount(strategy?.primaryCashMinimum, DEFAULT_WEALTH_BUFFER_STRATEGY.primaryCashMinimum),
+    stockHaircutPct: clampPct(strategy?.stockHaircutPct, DEFAULT_WEALTH_BUFFER_STRATEGY.stockHaircutPct),
+    cryptoHaircutPct: clampPct(strategy?.cryptoHaircutPct, DEFAULT_WEALTH_BUFFER_STRATEGY.cryptoHaircutPct),
+    notes: String(strategy?.notes || "").trim(),
+  };
+}
+
 function normalizeWealthSettings(wealth = {}) {
   const existingProperties = Array.isArray(wealth.properties) ? wealth.properties : [];
   const properties = DEFAULT_WEALTH_PROPERTIES.map((defaults) => {
@@ -1179,6 +1206,7 @@ function normalizeWealthSettings(wealth = {}) {
     pension,
     deltaPortfolio: wealth.deltaPortfolio || null,
     history: normalizeWealthHistory(wealth.history),
+    bufferStrategy: normalizeWealthBufferStrategy(wealth.bufferStrategy),
   };
 }
 
@@ -1223,6 +1251,66 @@ function inferPrimaryCashAccount() {
 function getPrimaryCashAccount() {
   const wealth = getWealthSettings();
   return accountById(wealth.primaryCashAccountId) || inferPrimaryCashAccount() || null;
+}
+
+function getWealthBufferStrategy() {
+  const wealth = getWealthSettings();
+  wealth.bufferStrategy = normalizeWealthBufferStrategy(wealth.bufferStrategy);
+  return wealth.bufferStrategy;
+}
+
+function getInvestmentExposureBreakdown(deltaPortfolio) {
+  const summary = deltaPortfolio?.summary || {};
+  let stock = Number(summary.stockMarketValueDkk || 0) || 0;
+  let crypto = Number(summary.cryptoMarketValueDkk || 0) || 0;
+  if ((!stock || !crypto) && Array.isArray(deltaPortfolio?.holdings)) {
+    stock = 0;
+    crypto = 0;
+    for (const holding of deltaPortfolio.holdings) {
+      const value = Number(holding.marketValueDkk || 0) || 0;
+      if (String(holding.type || "").toUpperCase() === "CRYPTO") crypto += value;
+      else stock += value;
+    }
+  }
+  return { stock, crypto, total: stock + crypto };
+}
+
+function getWealthBufferSummary(summary = getWealthSummary()) {
+  const strategy = getWealthBufferStrategy();
+  const liquid = getLiquidAssetsSummary();
+  const exposure = getInvestmentExposureBreakdown(summary.deltaPortfolio);
+  const stockBufferValue = exposure.stock * (strategy.stockHaircutPct / 100);
+  const cryptoBufferValue = exposure.crypto * (strategy.cryptoHaircutPct / 100);
+  const effectiveBuffer = liquid.total + stockBufferValue + cryptoBufferValue;
+  const fixedBase = getFixedExpenseSettings().items.reduce((sum, item) => item.active === false ? sum : sum + Number(item.amount || 0), 0);
+  const marketLiquid = liquid.total + exposure.total;
+  const exposurePct = marketLiquid ? exposure.total / marketLiquid : 0;
+  const targetExposureGap = strategy.targetExposurePct - exposurePct * 100;
+  const cashGapToMinimum = liquid.total - strategy.minimumCashBuffer;
+  const cashGapToTarget = liquid.total - strategy.targetCashBuffer;
+  const primaryCashGap = summary.cash - strategy.primaryCashMinimum;
+  const cashStatus = strategy.minimumCashBuffer && liquid.total < strategy.minimumCashBuffer ? "under" : strategy.targetCashBuffer && liquid.total > strategy.targetCashBuffer ? "above" : "ok";
+  const primaryStatus = strategy.primaryCashMinimum && summary.cash < strategy.primaryCashMinimum ? "under" : "ok";
+  return {
+    strategy,
+    liquidCash: liquid.total,
+    primaryCash: summary.cash,
+    stockValue: exposure.stock,
+    cryptoValue: exposure.crypto,
+    investedValue: exposure.total,
+    stockBufferValue,
+    cryptoBufferValue,
+    effectiveBuffer,
+    fixedBase,
+    reserveMonths: fixedBase ? effectiveBuffer / fixedBase : 0,
+    exposurePct,
+    targetExposureGap,
+    cashGapToMinimum,
+    cashGapToTarget,
+    primaryCashGap,
+    cashStatus,
+    primaryStatus,
+  };
 }
 
 function getWealthSummary() {
@@ -1353,6 +1441,50 @@ function renderWealthView() {
             </div>
           </div>
         </section>
+
+        ${renderWealthBufferStrategyPanel(summary)}
+      </div>
+    </section>
+  `;
+}
+
+function renderWealthBufferStrategyPanel(summary) {
+  const buffer = getWealthBufferSummary(summary);
+  const strategy = buffer.strategy;
+  const cashTone = buffer.cashStatus === "under" ? "negative" : buffer.cashStatus === "above" ? "positive" : "";
+  const primaryTone = buffer.primaryStatus === "under" ? "negative" : "positive";
+  return `
+    <section class="panel pad wealth-section buffer-strategy-module">
+      <div class="section-heading clean-heading">
+        <div>
+          <h2>Investeret buffer</h2>
+          <p>Din bufferstrategi accepterer lav kontantbeholdning, fordi aktier/crypto tæller som sekundær reserve med konservativ haircut.</p>
+        </div>
+        <span class="pill ${strategy.mode === "invested" ? "positive" : "muted"}">${strategy.mode === "invested" ? "Høj eksponering" : strategy.mode === "cash" ? "Kontant buffer" : "Balanceret"}</span>
+      </div>
+      <div class="buffer-strategy-grid">
+        <div class="buffer-strategy-readouts">
+          <div class="wealth-line"><span>Effektiv stressbuffer<small>Cash + aktier ${Math.round(strategy.stockHaircutPct)}% + crypto ${Math.round(strategy.cryptoHaircutPct)}%</small></span><em>${formatCurrency(buffer.effectiveBuffer)}</em></div>
+          <div class="wealth-line"><span>Markedseksponering<small>Mål ${Math.round(strategy.targetExposurePct)}% af likvid formue</small></span><em>${formatPercent(buffer.exposurePct)}</em></div>
+          <div class="wealth-line ${cashTone}"><span>Kontanter alle konti<small>Minimum ${formatCurrency(strategy.minimumCashBuffer)} · mål ${formatCurrency(strategy.targetCashBuffer)}</small></span><em>${formatCurrency(buffer.liquidCash)}</em></div>
+          <div class="wealth-line ${primaryTone}"><span>Lønkonto<small>Driftsminimum ${formatCurrency(strategy.primaryCashMinimum)}</small></span><em>${formatCurrency(buffer.primaryCash)}</em></div>
+        </div>
+        <div class="buffer-strategy-controls">
+          <label class="field"><span>Strategi</span><select class="input" id="wealth-buffer-mode">
+            <option value="invested" ${strategy.mode === "invested" ? "selected" : ""}>Høj eksponering / investeret buffer</option>
+            <option value="balanced" ${strategy.mode === "balanced" ? "selected" : ""}>Balanceret buffer</option>
+            <option value="cash" ${strategy.mode === "cash" ? "selected" : ""}>Kontant buffer</option>
+          </select></label>
+          <div class="buffer-input-grid">
+            <label class="field"><span>Cash-min.</span><input class="input" inputmode="decimal" data-wealth-buffer-field="minimumCashBuffer" value="${escapeHtml(formatAmountInput(strategy.minimumCashBuffer))}" ${privacyInputAttrs()} /></label>
+            <label class="field"><span>Cash-mål</span><input class="input" inputmode="decimal" data-wealth-buffer-field="targetCashBuffer" value="${escapeHtml(formatAmountInput(strategy.targetCashBuffer))}" ${privacyInputAttrs()} /></label>
+            <label class="field"><span>Lønkonto-min.</span><input class="input" inputmode="decimal" data-wealth-buffer-field="primaryCashMinimum" value="${escapeHtml(formatAmountInput(strategy.primaryCashMinimum))}" ${privacyInputAttrs()} /></label>
+            <label class="field"><span>Aktie-haircut %</span><input class="input" inputmode="decimal" data-wealth-buffer-field="stockHaircutPct" value="${escapeHtml(formatAmountInput(strategy.stockHaircutPct))}" ${privacyInputAttrs()} /></label>
+            <label class="field"><span>Crypto-haircut %</span><input class="input" inputmode="decimal" data-wealth-buffer-field="cryptoHaircutPct" value="${escapeHtml(formatAmountInput(strategy.cryptoHaircutPct))}" ${privacyInputAttrs()} /></label>
+            <label class="field"><span>Eksponeringsmål %</span><input class="input" inputmode="decimal" data-wealth-buffer-field="targetExposurePct" value="${escapeHtml(formatAmountInput(strategy.targetExposurePct))}" ${privacyInputAttrs()} /></label>
+          </div>
+          <p class="helper">${escapeHtml(strategy.notes || "Aktier/crypto er reserve, men ikke 1:1 kontanter. Haircut viser buffer-værdi ved markedsstress.")}</p>
+        </div>
       </div>
     </section>
   `;
@@ -3517,6 +3649,7 @@ function renderOverviewReport() {
   const pace = getAnalysisPace(summary, comparison);
   const concentration = getAnalysisConcentration(categories, merchants, summary);
   const crosscheck = getCrosscheckSummary(periodRows, reportingRows);
+  const buffer = getWealthBufferSummary(getWealthSummary());
   return `
     <section class="analysis-command section" aria-label="Analyseoverblik">
       <div class="analysis-command-copy">
@@ -3536,6 +3669,7 @@ function renderOverviewReport() {
       ${renderSpendingPacePanel(pace)}
       ${renderConcentrationPanel(concentration)}
       ${renderCrosscheckPanel(crosscheck)}
+      ${renderInvestedBufferAnalysisPanel(buffer)}
       ${renderRecurringCommitmentPanel(recurring)}
       ${renderMoverPanel(movers)}
       ${renderAnalysisQualityPanel(quality)}
@@ -3675,6 +3809,18 @@ function renderCrosscheckPanel(crosscheck) {
       <div class="analysis-list-mini">
         ${top.map((match) => `<button type="button" data-action="open-drilldown" data-drilldown="auto-match" data-id="${escapeHtml(match.id)}"><span>${escapeHtml(match.outTx.description)} ↔ ${escapeHtml(match.inTx.description)}</span><strong>${formatCurrency(match.amount)}</strong></button>`).join("") || `<span class="helper">Ingen krydstjekkede flytninger i perioden.</span>`}
       </div>
+    </article>
+  `;
+}
+
+function renderInvestedBufferAnalysisPanel(buffer) {
+  const tone = buffer.primaryStatus === "under" ? "negative" : "positive";
+  return `
+    <article class="analysis-card">
+      <div class="analysis-card-head"><span>Investeret buffer</span><h3>${formatCurrency(buffer.effectiveBuffer)}</h3></div>
+      <p>Kontanter ${formatCurrency(buffer.liquidCash)} plus stressværdi af aktier/crypto. Markedseksponering er ${formatPercent(buffer.exposurePct)} mod mål ${Math.round(buffer.strategy.targetExposurePct)}%.</p>
+      <div class="analysis-mini-metric ${tone}"><strong>${formatCurrency(buffer.primaryCash)}</strong><small>lønkonto · minimum ${formatCurrency(buffer.strategy.primaryCashMinimum)}</small></div>
+      <button class="button ghost" type="button" data-nav="formue">Åbn bufferstrategi</button>
     </article>
   `;
 }
@@ -7001,6 +7147,33 @@ async function handleChange(event) {
     saveState();
     render();
     notify("Primær lønkonto til formueoverblik blev opdateret.");
+    return;
+  }
+
+  if (target.id === "wealth-buffer-mode") {
+    const wealth = getWealthSettings();
+    wealth.bufferStrategy.mode = target.value;
+    saveState();
+    render();
+    notify("Bufferstrategien blev opdateret.");
+    return;
+  }
+
+  if (target.dataset.wealthBufferField) {
+    const wealth = getWealthSettings();
+    const field = target.dataset.wealthBufferField;
+    const amount = parseAmount(target.value);
+    if (!Number.isFinite(amount)) {
+      notify("Beløbet/procenten kunne ikke læses.", "danger");
+      render();
+      return;
+    }
+    if (["stockHaircutPct", "cryptoHaircutPct", "targetExposurePct"].includes(field)) wealth.bufferStrategy[field] = Math.max(0, Math.min(100, amount));
+    else wealth.bufferStrategy[field] = Math.max(0, amount);
+    wealth.bufferStrategy = normalizeWealthBufferStrategy(wealth.bufferStrategy);
+    saveState();
+    render();
+    notify("Bufferstrategien blev gemt.");
     return;
   }
 

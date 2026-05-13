@@ -1401,6 +1401,16 @@ h3 {
   opacity: 0.68;
 }
 
+.wealth-line.positive {
+  border-color: rgba(31, 122, 77, 0.25);
+  background: rgba(231, 244, 232, 0.72);
+}
+
+.wealth-line.negative {
+  border-color: rgba(163, 73, 58, 0.28);
+  background: rgba(255, 240, 234, 0.76);
+}
+
 .wealth-main-panel {
   display: grid;
   gap: 22px;
@@ -1475,6 +1485,35 @@ h3 {
   background:
     radial-gradient(circle at 8% 0%, rgba(0, 122, 83, 0.13), transparent 30%),
     linear-gradient(150deg, rgba(254, 255, 249, 0.96), rgba(245, 248, 240, 0.9));
+}
+
+.buffer-strategy-module {
+  background:
+    radial-gradient(circle at 92% 8%, rgba(215, 230, 163, 0.38), transparent 22rem),
+    linear-gradient(145deg, rgba(254, 255, 249, 0.96), rgba(244, 248, 239, 0.9));
+}
+
+.buffer-strategy-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 1.1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.buffer-strategy-readouts {
+  display: grid;
+  gap: 10px;
+}
+
+.buffer-strategy-controls {
+  display: grid;
+  gap: 14px;
+}
+
+.buffer-input-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 12px;
 }
 
 .portfolio-hero {
@@ -4802,6 +4841,7 @@ button.list-row,
   .wealth-layout,
   .property-wealth-row,
   .wealth-secondary-grid,
+  .buffer-strategy-grid,
   .portfolio-category-grid,
   .portfolio-hero.separated,
   .move-hero,
@@ -4905,6 +4945,7 @@ button.list-row,
   .move-affordability-kpis,
   .move-affordability-note,
   .move-insight-hero-grid,
+  .buffer-input-grid,
   .move-line-meta,
   .move-category-row,
   .move-insight-bar-row,
