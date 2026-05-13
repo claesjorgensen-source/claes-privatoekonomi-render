@@ -5400,7 +5400,8 @@ function renderBankSyncView() {
       </div>
       <div class="cashflow-panel">
         <div class="quick-sync-stack">
-          <button class="button primary large-action" type="button" data-action="eb-sync-range" data-months="12">Hent 12 måneder</button>
+          ${!ebHasSession ? `<button class="button primary large-action" type="button" data-action="eb-connect">Nyt MitID-samtykke</button>` : ""}
+          <button class="button ${ebHasSession ? "primary" : "ghost"} large-action" type="button" data-action="eb-sync-range" data-months="12">Hent 12 måneder</button>
           <button class="button ghost" type="button" data-action="eb-sync-range" data-months="6">Hent 6 måneder</button>
           <button class="button ghost" type="button" data-action="eb-sync-range" data-months="3">Hent 3 måneder</button>
           <button class="button ghost" type="button" data-action="remove-overlaps">Fjern overlap</button>
