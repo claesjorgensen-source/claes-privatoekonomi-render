@@ -8688,6 +8688,9 @@ async function completeEnableBankingSession(code, error) {
     }
     saveState();
     await refreshEnableBankingAccounts();
+    const dateTo = todayISO();
+    notify("Samtykke er aktivt. Jeg henter 12 måneders bankdata nu…");
+    await syncEnableBankingTransactions(false, { dateFrom: shiftDateByYears(dateTo, -1), dateTo, view: "bank-sync", month: currentMonthKey() });
   } catch (err) {
     notify(`Kunne ikke oprette Enable Banking-session: ${err.message}`, "danger");
   }
