@@ -319,6 +319,7 @@ let ui = {
   movingReceiptDraft: null,
   movingReceiptReading: false,
   movingFormDraft: null,
+  mobilePeriodOpen: false,
 };
 
 init();
@@ -763,7 +764,19 @@ function renderDashboard() {
       </div>
     </section>
 
+    ${renderMobileQuickActions()}
     ${renderExecutiveDashboard(periodRows, reportingRows, topCategories, summary, cleanup, comparison, recent, liquid, label)}
+  `;
+}
+
+function renderMobileQuickActions() {
+  const fixedTotal = getFixedExpenseSettings().items.reduce((sum, item) => item.active === false ? sum : sum + Number(item.amount || 0), 0);
+  return `
+    <section class="mobile-quick-actions" aria-label="Hurtige genveje">
+      <button type="button" data-nav="formue"><span>Formue</span><strong>Buffer & kurser</strong></button>
+      <button type="button" data-nav="ny-lejlighed"><span>Solvej 4</span><strong>Flytning & lån</strong></button>
+      <button type="button" data-action="open-report" data-report="faste"><span>Faste</span><strong>${formatCurrency(fixedTotal)}/md.</strong></button>
+    </section>
   `;
 }
 
@@ -5971,35 +5984,42 @@ function renderSettingsView() {
 function renderPeriodControl() {
   const months = getAvailableMonths();
   const range = activeDateRange();
+  const label = activePeriodLabel();
   return `
-    <div class="period-control" aria-label="Datofilter">
-      <div class="period-head">
-        <span class="label">Periode</span>
-        <strong>${escapeHtml(activePeriodLabel())}</strong>
-      </div>
-      <div class="period-presets" aria-label="Hurtige perioder">
-        <button class="period-chip ${isPeriodPresetActive("month") ? "active" : ""}" type="button" data-action="period-preset" data-preset="month">Denne måned</button>
-        <button class="period-chip ${isPeriodPresetActive("prev-month") ? "active" : ""}" type="button" data-action="period-preset" data-preset="prev-month">Sidste måned</button>
-        <button class="period-chip ${isPeriodPresetActive("90d") ? "active" : ""}" type="button" data-action="period-preset" data-preset="90d">90 dage</button>
-        <button class="period-chip ${isPeriodPresetActive("ytd") ? "active" : ""}" type="button" data-action="period-preset" data-preset="ytd">År til dato</button>
-        <button class="period-chip ${isPeriodPresetActive("all") ? "active" : ""}" type="button" data-action="period-preset" data-preset="all">Alt</button>
-      </div>
-      <div class="period-row date-row">
-        <label class="field period-month-field">
-          <span class="label">Måned</span>
-          <select class="select" id="month-select" aria-label="Vælg måned">
-            ${months.map((month) => option(month, monthLabel(month), ui.month === month)).join("")}
-          </select>
-        </label>
-        <label class="field">
-          <span class="label">Fra</span>
-          <input class="input" id="period-from" type="date" value="${escapeHtml(range.from)}" aria-label="Fra dato" />
-        </label>
-        <span class="period-arrow" aria-hidden="true">→</span>
-        <label class="field">
-          <span class="label">Til</span>
-          <input class="input" id="period-to" type="date" value="${escapeHtml(range.to)}" aria-label="Til dato" />
-        </label>
+    <div class="period-control ${ui.mobilePeriodOpen ? "open" : ""}" aria-label="Datofilter">
+      <button class="period-toggle" type="button" data-action="mobile-period-toggle" aria-expanded="${ui.mobilePeriodOpen ? "true" : "false"}">
+        <span>Periode</span>
+        <strong>${escapeHtml(label)}</strong>
+      </button>
+      <div class="period-content">
+        <div class="period-head">
+          <span class="label">Periode</span>
+          <strong>${escapeHtml(label)}</strong>
+        </div>
+        <div class="period-presets" aria-label="Hurtige perioder">
+          <button class="period-chip ${isPeriodPresetActive("month") ? "active" : ""}" type="button" data-action="period-preset" data-preset="month">Denne måned</button>
+          <button class="period-chip ${isPeriodPresetActive("prev-month") ? "active" : ""}" type="button" data-action="period-preset" data-preset="prev-month">Sidste måned</button>
+          <button class="period-chip ${isPeriodPresetActive("90d") ? "active" : ""}" type="button" data-action="period-preset" data-preset="90d">90 dage</button>
+          <button class="period-chip ${isPeriodPresetActive("ytd") ? "active" : ""}" type="button" data-action="period-preset" data-preset="ytd">År til dato</button>
+          <button class="period-chip ${isPeriodPresetActive("all") ? "active" : ""}" type="button" data-action="period-preset" data-preset="all">Alt</button>
+        </div>
+        <div class="period-row date-row">
+          <label class="field period-month-field">
+            <span class="label">Måned</span>
+            <select class="select" id="month-select" aria-label="Vælg måned">
+              ${months.map((month) => option(month, monthLabel(month), ui.month === month)).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span class="label">Fra</span>
+            <input class="input" id="period-from" type="date" value="${escapeHtml(range.from)}" aria-label="Fra dato" />
+          </label>
+          <span class="period-arrow" aria-hidden="true">→</span>
+          <label class="field">
+            <span class="label">Til</span>
+            <input class="input" id="period-to" type="date" value="${escapeHtml(range.to)}" aria-label="Til dato" />
+          </label>
+        </div>
       </div>
     </div>
   `;
@@ -6126,8 +6146,8 @@ function renderTransactionTable(rows, { compact } = { compact: false }) {
     return `<div class="empty-state"><strong>Ingen posteringer</strong><span>Hent bankdata via Open Banking eller vælg en anden periode.</span></div>`;
   }
   return `
-    <div class="table-wrap">
-      <table>
+    <div class="table-wrap transaction-table-wrap">
+      <table class="transaction-table">
         <thead>
           <tr>
             <th>Dato</th>
@@ -6144,23 +6164,23 @@ function renderTransactionTable(rows, { compact } = { compact: false }) {
             const account = accountById(tx.accountId);
             return `
               <tr>
-                <td>${renderTransactionDate(tx)}</td>
-                <td class="description-cell">
+                <td data-label="Dato">${renderTransactionDate(tx)}</td>
+                <td class="description-cell" data-label="Tekst">
                   <strong>${escapeHtml(tx.description)}</strong>
                   <small>${escapeHtml(sourceLabel(tx.source))}${tx.note ? ` · Note: ${escapeHtml(tx.note)}` : ""} · <button class="link-button" type="button" data-action="open-transaction" data-id="${tx.id}">Åbn detaljer</button></small>
                   ${tx.categorySource || tx.categoryConfidence ? `<small>Kategori: ${escapeHtml(tx.categorySource || "auto")}${tx.categoryConfidence ? ` · ${tx.categoryConfidence}%` : ""}${tx.categoryReason ? ` · ${escapeHtml(tx.categoryReason)}` : ""}</small>` : ""}
                   ${tx.relationType || tx.relationKey ? `<small>Relation: ${escapeHtml(relationTypeLabel(tx.relationType))}${tx.relationKey ? ` · ${escapeHtml(tx.relationKey)}` : ""}</small>` : ""}
                   ${tx.linkedTransactionId ? `<small>Afstemt med: ${escapeHtml(accountById(state.transactions.find((item) => item.id === tx.linkedTransactionId)?.accountId)?.name || "anden konto")}</small>` : ""}
                 </td>
-                <td>
+                <td data-label="Kategori">
                   ${compact
                     ? renderCategoryPill(category)
                     : `<select class="select" data-tx-category="${tx.id}" aria-label="Kategori for ${escapeHtml(tx.description)}">
                         ${state.categories.map((item) => option(item.id, item.name, item.id === tx.categoryId)).join("")}
                        </select>`}
                 </td>
-                <td>${escapeHtml(account?.name || "Ukendt konto")}</td>
-                <td class="amount ${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</td>
+                <td data-label="Konto">${escapeHtml(account?.name || "Ukendt konto")}</td>
+                <td data-label="Beløb" class="amount tx-amount-cell ${tx.amount >= 0 ? "amount-positive" : "amount-negative"}">${formatCurrency(tx.amount)}</td>
 
               </tr>
             `;
@@ -6384,6 +6404,12 @@ async function handleClick(event) {
     return;
   }
 
+  if (action === "mobile-period-toggle") {
+    ui.mobilePeriodOpen = !ui.mobilePeriodOpen;
+    render();
+    return;
+  }
+
   if (action === "refresh-totalkredit-rates") {
     await refreshTotalkreditRates({ silent: false, force: true });
     return;
@@ -6545,6 +6571,7 @@ async function handleClick(event) {
 
   if (action === "period-preset") {
     ui.transactionsPage = 1;
+    ui.mobilePeriodOpen = false;
     setPeriodPreset(button.dataset.preset || "month");
     saveState();
     render();
@@ -7085,6 +7112,7 @@ async function handleChange(event) {
 
   if (target.id === "period-mode") {
     ui.transactionsPage = 1;
+    ui.mobilePeriodOpen = false;
     ui.periodMode = target.value === "range" ? "range" : "month";
     if (ui.periodMode === "month") setMonthPeriod(ui.month);
     else {
@@ -7098,6 +7126,7 @@ async function handleChange(event) {
 
   if (target.id === "month-select") {
     ui.transactionsPage = 1;
+    ui.mobilePeriodOpen = false;
     setMonthPeriod(target.value);
     saveState();
     render();
@@ -7105,6 +7134,7 @@ async function handleChange(event) {
 
   if (target.id === "period-from" || target.id === "period-to") {
     ui.transactionsPage = 1;
+    ui.mobilePeriodOpen = false;
     ui.periodMode = "range";
     if (target.id === "period-from") ui.periodFrom = target.value;
     if (target.id === "period-to") ui.periodTo = target.value;
