@@ -415,16 +415,24 @@ function markServerStateFingerprint(value = state) {
   lastPersistedStateFingerprint = stateFingerprint(value);
 }
 
+function cacheStateLocally(value = state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  } catch (error) {
+    console.warn("Kunne ikke cache state lokalt; server-state er stadig sandheden", error);
+  }
+}
+
 function saveState() {
   prepareStateForSave();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  cacheStateLocally();
   persistStateToServer();
   broadcastStateUpdate("Data er opdateret.");
 }
 
 function saveStateQuietly() {
   prepareStateForSave();
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  cacheStateLocally();
   persistStateToServer();
 }
 
@@ -458,11 +466,7 @@ async function hydrateStateFromServer() {
     const localSaved = new Date(state.settings?.serverSavedAt || state.bankSync?.enableBanking?.lastSyncAt || 0).getTime();
     const serverSaved = new Date(data.savedAt || serverState.settings?.serverSavedAt || 0).getTime();
     if (serverCount < localCount && serverSaved <= localSaved) return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(serverState));
-    } catch (storageError) {
-      console.warn("Kunne ikke cache server-state lokalt", storageError);
-    }
+    cacheStateLocally(serverState);
     const keepView = ui.view;
     state = normalizeStateForRuntime(JSON.parse(JSON.stringify(serverState)));
     ui.view = keepView;
@@ -500,7 +504,7 @@ function persistStateToServer() {
       .then((data) => {
         if (data?.savedAt) {
           state.settings.serverSavedAt = data.savedAt;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          cacheStateLocally();
         }
         markServerStateFingerprint(state);
       })
@@ -6449,8 +6453,8 @@ async function handleClick(event) {
       return;
     }
     const label = ui.undo.label;
-    localStorage.setItem(STORAGE_KEY, ui.undo.stateJson);
-    state = loadState();
+    state = normalizeStateForRuntime(JSON.parse(ui.undo.stateJson));
+    cacheStateLocally();
     ui.undo = null;
     hydratePeriodUiFromState();
     saveStateQuietly();
