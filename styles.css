@@ -5142,3 +5142,317 @@ button.list-row,
     grid-template-columns: 1fr;
   }
 }
+
+/* Mobile polish: compact top chrome, thumb-friendly bottom nav, calmer cards. */
+@media (max-width: 680px) {
+  body {
+    background:
+      radial-gradient(circle at 16% -8%, rgba(0, 122, 83, 0.18), transparent 18rem),
+      radial-gradient(circle at 100% 4%, rgba(215, 230, 163, 0.24), transparent 16rem),
+      linear-gradient(180deg, rgba(254, 255, 249, 0.84), rgba(242, 247, 238, 0.96) 34%, var(--bg));
+  }
+
+  .app-shell {
+    min-height: 100svh;
+  }
+
+  .sidebar {
+    position: relative;
+    height: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: calc(12px + env(safe-area-inset-top)) 12px 12px;
+    border-radius: 0 0 30px 30px;
+    background:
+      radial-gradient(circle at 12% 0%, rgba(215, 230, 163, 0.26), transparent 12rem),
+      linear-gradient(145deg, rgba(0, 87, 63, 0.98), rgba(7, 38, 30, 0.98));
+    box-shadow: 0 18px 48px rgba(7, 38, 30, 0.18);
+    overflow: visible;
+  }
+
+  .brand {
+    grid-column: 1 / -1;
+    min-width: 0;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+    border-radius: 14px;
+    font-size: 0.76rem;
+  }
+
+  .brand-text strong {
+    font-size: 0.98rem;
+    line-height: 1.05;
+  }
+
+  .brand-text span,
+  .sidebar-note,
+  .sidebar-meta {
+    display: none;
+  }
+
+  .sidebar-sync,
+  .sidebar-mode {
+    width: 100%;
+    min-height: 42px;
+    margin: 0;
+    padding: 9px 11px;
+    border-radius: 18px;
+    background: rgba(247, 243, 233, 0.11);
+  }
+
+  .sidebar-sync span,
+  .sidebar-mode span {
+    font-size: 0.82rem;
+    line-height: 1;
+  }
+
+  .sidebar-sync small,
+  .sidebar-mode small {
+    display: none;
+  }
+
+  .nav-list {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    z-index: 30;
+    display: flex;
+    grid-template-columns: none;
+    gap: 7px;
+    padding: 8px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid rgba(247, 243, 233, 0.34);
+    border-radius: 999px;
+    background: rgba(4, 45, 33, 0.88);
+    box-shadow: 0 18px 52px rgba(7, 38, 30, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(22px) saturate(1.15);
+  }
+
+  .nav-list::-webkit-scrollbar,
+  .report-tabs::-webkit-scrollbar,
+  .period-presets::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-list,
+  .report-tabs,
+  .period-presets {
+    scrollbar-width: none;
+  }
+
+  .nav-button {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 96px;
+    min-height: 42px;
+    justify-content: center;
+    scroll-snap-align: start;
+    padding: 9px 12px;
+    border: 1px solid rgba(247, 243, 233, 0.12);
+    border-radius: 999px;
+    background: rgba(247, 243, 233, 0.08);
+    color: rgba(247, 243, 233, 0.78);
+    font-size: 0.84rem;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .nav-button small {
+    display: none;
+  }
+
+  .nav-button:hover {
+    transform: none;
+  }
+
+  .nav-button.active {
+    color: #043321;
+    background: #e8f2bf;
+    border-color: rgba(232, 242, 191, 0.82);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  }
+
+  .main {
+    padding: 18px 12px calc(104px + env(safe-area-inset-bottom));
+  }
+
+  .topbar {
+    gap: 14px;
+    margin-bottom: 18px;
+    padding: 0 2px;
+  }
+
+  h1 {
+    max-width: 11ch;
+    margin-bottom: 7px;
+    font-size: clamp(2.35rem, 14vw, 3.35rem);
+    line-height: 0.94;
+    letter-spacing: -0.07em;
+  }
+
+  h2 {
+    font-size: clamp(1.45rem, 7.5vw, 2rem);
+  }
+
+  .lead {
+    max-width: 36ch;
+    font-size: 0.95rem;
+    line-height: 1.48;
+  }
+
+  .section {
+    margin-top: 20px;
+  }
+
+  .section-heading {
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .button,
+  .icon-button,
+  .select,
+  .input {
+    min-height: 44px;
+  }
+
+  .actions,
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .period-control {
+    width: 100%;
+    padding: 10px;
+    border-radius: 24px;
+    background: rgba(254, 255, 249, 0.86);
+    box-shadow: 0 14px 36px rgba(16, 35, 29, 0.08);
+  }
+
+  .period-presets {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 5px;
+    border-radius: 999px;
+  }
+
+  .period-chip {
+    flex: 0 0 auto;
+    min-width: 72px;
+    padding: 8px 12px;
+  }
+
+  .panel,
+  .metric-band,
+  .analysis-card,
+  .exec-panel,
+  .finance-cockpit,
+  .dashboard-hero,
+  .analysis-command,
+  .fixed-spend-command,
+  .wealth-history-hero,
+  .move-hero,
+  .buffer-strategy-module {
+    border-radius: 26px;
+    box-shadow: 0 12px 34px rgba(25, 29, 27, 0.055);
+  }
+
+  .panel.pad,
+  .analysis-card,
+  .buffer-strategy-module {
+    padding: 18px;
+  }
+
+  .finance-cockpit,
+  .dashboard-hero,
+  .analysis-command,
+  .fixed-spend-command,
+  .wealth-history-hero,
+  .move-hero {
+    padding: 20px;
+  }
+
+  .metric-band {
+    overflow: hidden;
+    background: rgba(255, 250, 241, 0.82);
+  }
+
+  .metric {
+    padding: 18px;
+  }
+
+  .metric span {
+    margin-bottom: 9px;
+    font-size: 0.78rem;
+  }
+
+  .metric strong {
+    font-size: clamp(1.8rem, 9.5vw, 2.55rem);
+    letter-spacing: -0.075em;
+  }
+
+  .report-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 2px 2px 6px;
+    margin-inline: -2px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .report-tab {
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 10px 14px;
+    background: rgba(255, 250, 241, 0.78);
+  }
+
+  .table-wrap {
+    margin-inline: -10px;
+    padding-inline: 10px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  th,
+  td {
+    padding: 12px 13px;
+  }
+
+  .wealth-history-copy h2,
+  .cockpit-balance,
+  .hero-amount {
+    letter-spacing: -0.085em;
+  }
+}
+
+@media (max-width: 680px) and (prefers-reduced-motion: no-preference) {
+  .nav-button.active,
+  .panel,
+  .metric-band,
+  .finance-cockpit,
+  .dashboard-hero,
+  .analysis-command,
+  .wealth-history-hero {
+    animation: mobile-rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+
+@keyframes mobile-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
