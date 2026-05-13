@@ -5382,15 +5382,19 @@ function renderBankSyncView() {
   const ebConfig = eb.config || {};
   const ebAccounts = eb.accounts || [];
   const ebConfigured = ebConfig.configured;
+  const ebHasSession = Boolean(ebConfig.hasSession || ebConfig.sessionId || ebAccounts.length);
   const coverage = getDataCoverage();
   return `
     <section class="dashboard-hero bank-hero" aria-label="Bankdata status">
       <div class="hero-copy">
         <span class="hero-month">Bankdata</span>
-        <h2>${ebConfigured ? "Forbundet" : "Ikke forbundet"}</h2>
+        <h2>${ebConfigured ? (ebHasSession ? "Forbundet" : "Samtykke mangler") : "Ikke forbundet"}</h2>
         <div class="hero-amount bank-amount">${ebAccounts.length || 0} konti</div>
         <div class="delta-row">
+          <span class="delta-pill ${ebHasSession ? "positive" : "negative"}"><small>Samtykke</small><strong>${ebHasSession ? "Aktivt" : "Mangler"}</strong><em>${ebConfig.authorizedAt ? formatDateTime(ebConfig.authorizedAt) : "Start nyt MitID-samtykke"}</em></span>
           <span class="delta-pill positive"><small>Seneste sync</small><strong>${eb.lastSyncAt ? formatDateTime(eb.lastSyncAt) : "—"}</strong><em>${eb.lastImportCount ? `${eb.lastImportCount} nye poster` : "klar til sync"}</em></span>
+          <span class="delta-pill"><small>Sidst anmodet</small><strong>${eb.lastDateFrom ? `${formatDate(eb.lastDateFrom)} → ${formatDate(eb.lastDateTo)}` : "—"}</strong><em>${eb.lastReturnedCount !== undefined ? `${eb.lastReturnedCount} returneret` : "viser om 12 mdr. blev bedt om"}</em></span>
+          <span class="delta-pill"><small>Provider returnerede</small><strong>${eb.lastEarliestTransactionDate ? `${formatDate(eb.lastEarliestTransactionDate)} → ${formatDate(eb.lastLatestTransactionDate)}` : "—"}</strong><em>${eb.lastEarliestTransactionDate ? "ældste/seneste post" : "ingen poster fra sidste kald"}</em></span>
           <span class="delta-pill"><small>Historik i appen</small><strong>${coverage.first ? `${formatDate(coverage.first)} → ${formatDate(coverage.last)}` : "—"}</strong><em>${coverage.count} posteringer</em></span>
         </div>
       </div>
@@ -5418,7 +5422,7 @@ function renderBankSyncView() {
       <div class="form-grid compact">
         <div class="field"><label for="sync-date-from">Fra</label><input class="input" id="sync-date-from" type="date" value="${escapeHtml(ui.syncDateFrom)}" /></div>
         <div class="field"><label for="sync-date-to">Til</label><input class="input" id="sync-date-to" type="date" value="${escapeHtml(ui.syncDateTo)}" /></div>
-        <div class="field"><label>Status</label><div class="inline-status ${ebConfigured ? "positive" : "negative"}">${ebConfigured ? "Enable Banking er klar" : "Opsætning mangler"}</div></div>
+        <div class="field"><label>Status</label><div class="inline-status ${ebConfigured && ebHasSession ? "positive" : "negative"}">${ebConfigured ? (ebHasSession ? "Enable Banking er klar" : "Opsætning klar · nyt samtykke kræves") : "Opsætning mangler"}</div></div>
       </div>
     </section>
 
@@ -6675,8 +6679,8 @@ async function handleClick(event) {
 
   if (action === "eb-sync-range") {
     const months = Number(button.dataset.months || 6);
-    ui.syncDateFrom = uiMonthStart(shiftMonth(currentMonthKey(), -(months - 1)));
     ui.syncDateTo = todayISO();
+    ui.syncDateFrom = months >= 12 ? shiftDateByYears(ui.syncDateTo, -1) : uiMonthStart(shiftMonth(currentMonthKey(), -(months - 1)));
     await syncEnableBankingTransactions();
     return;
   }
@@ -8723,10 +8727,11 @@ async function maybeAutoSyncLatest() {
 }
 
 async function syncLatestBankData() {
-  notify("Henter nyeste bankdata…");
+  const dateTo = todayISO();
+  notify("Henter rullende 12 måneders bankdata…");
   await syncEnableBankingTransactions(false, {
-    dateFrom: "2025-11-01",
-    dateTo: todayISO(),
+    dateFrom: shiftDateByYears(dateTo, -1),
+    dateTo,
     view: "overblik",
     month: currentMonthKey(),
   });
@@ -8737,14 +8742,27 @@ async function syncEnableBankingTransactions(silent = false, options = {}) {
     const dateFrom = options.dateFrom || ui.syncDateFrom || uiMonthStart(ui.month);
     const dateTo = options.dateTo || ui.syncDateTo || todayISO();
     const data = await apiFetch(`/api/enablebanking/sync?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`);
-    const result = importEnableBankingTransactions(data);
-    const dedupe = removeOverlapDuplicates();
     const eb = getBankSyncState().enableBanking;
+    const returnedDates = (data.transactions || []).map((tx) => tx.date).filter(isIsoDate).sort();
     eb.accounts = data.accounts || eb.accounts;
-    eb.lastSyncAt = data.syncedAt || new Date().toISOString();
-    eb.lastImportCount = result.imported;
     eb.lastDateFrom = dateFrom;
     eb.lastDateTo = dateTo;
+    eb.lastReturnedCount = data.transactions?.length || 0;
+    eb.lastEarliestTransactionDate = returnedDates[0] || "";
+    eb.lastLatestTransactionDate = returnedDates.at(-1) || "";
+    if (data.hasSession === false || (!(data.accounts || []).length && !(data.transactions || []).length)) {
+      eb.lastSyncAt = data.syncedAt || new Date().toISOString();
+      eb.lastImportCount = 0;
+      saveState();
+      ui.view = options.view || "bank-sync";
+      render();
+      if (!silent) notify("Der er ikke aktivt Enable Banking-samtykke på serveren. Opret nyt MitID-samtykke under Bankdata, og prøv igen.", "danger");
+      return;
+    }
+    const result = importEnableBankingTransactions(data);
+    const dedupe = removeOverlapDuplicates();
+    eb.lastSyncAt = data.syncedAt || new Date().toISOString();
+    eb.lastImportCount = result.imported;
     ui.month = options.month || toMonthKey(dateTo);
     saveState();
     ui.view = options.view || "oprydning";

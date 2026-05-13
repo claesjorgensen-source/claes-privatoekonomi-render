@@ -96,8 +96,8 @@ if (existsSync(EB_PRIVATE_KEY_FILE) && existsSync(EB_CERT_FILE)) {
 }
 
 const SERVER_CATEGORY_RULES = [
-  { pattern: /(totalkredit|adm\.service fyn)/i, categoryId: "cat-housing", confidence: 90, reason: "Backend-knowhow: bolig/realkredit." },
-  { pattern: /(odsherred kommune|odsherred forsyning|brf sb odden|sommerhuskonto)/i, categoryId: "cat-summerhouse", confidence: 90, reason: "Backend-knowhow: sommerhus." },
+  { pattern: /(totalkredit.*969343877|969343877.*totalkredit|adm\.service fyn.*017859237|017859237.*adm\.service fyn)/i, categoryId: "cat-housing", confidence: 96, reason: "Backend-knowhow: bolig-aftalenummer." },
+  { pattern: /(totalkredit.*012810021|012810021.*totalkredit|adm\.service fyn.*017859238|017859238.*adm\.service fyn|odsherred kommune|odsherred forsyning|brf sb odden|sommerhuskonto)/i, categoryId: "cat-summerhouse", confidence: 92, reason: "Backend-knowhow: sommerhus-aftalenummer." },
   { pattern: /(netto|rema|føtex|foetex|meny|superbrugsen|coop|365|skagenfood|nemlig|lidl|odden fisk|dagli.?brugsen)/i, categoryId: "cat-groceries", confidence: 88, reason: "Backend-knowhow: dagligvarer." },
   { pattern: /(wolt|uber eats|restaurant|bistro|cafe|café|takeaway|bar|kaffe)/i, categoryId: "cat-lifestyle", confidence: 82, reason: "Backend-knowhow: mad ude/fritid." },
   { pattern: /(matas|apotek|læge|laege|tandlæge|fitness|sportinghealthclub)/i, categoryId: "cat-health", confidence: 84, reason: "Backend-knowhow: sundhed." },
@@ -981,6 +981,18 @@ async function getEnableBankingAccounts() {
 }
 
 async function syncEnableBankingTransactions(dateFrom, dateTo, accountIds = []) {
+  const store = await readEbStore();
+  if (!store.sessionId) {
+    return {
+      dateFrom,
+      dateTo,
+      hasSession: false,
+      accounts: [],
+      transactions: [],
+      errors: [{ message: "Enable Banking-session mangler. Opret nyt MitID-samtykke." }],
+      syncedAt: new Date().toISOString(),
+    };
+  }
   const accounts = await getEnableBankingAccounts();
   const selected = accountIds.length ? accounts.filter((account) => accountIds.includes(account.id)) : accounts;
   const transactions = [];
@@ -1002,7 +1014,7 @@ async function syncEnableBankingTransactions(dateFrom, dateTo, accountIds = []) 
     }
   }
 
-  return { dateFrom, dateTo, accounts: selected, transactions, errors, syncedAt: new Date().toISOString() };
+  return { dateFrom, dateTo, hasSession: true, accounts: selected, transactions, errors, syncedAt: new Date().toISOString() };
 }
 
 function normalizeEbAccount(account) {
