@@ -8536,9 +8536,10 @@ function applyRelationsFromNotes() {
 }
 
 function getBankSyncState() {
-  state.bankSync ||= { accounts: [], accountMappings: {}, lastSyncAt: "", config: null, autoSyncOnOpen: false, enableBanking: {} };
+  state.bankSync ||= { accounts: [], accountMappings: {}, accountAliases: {}, lastSyncAt: "", config: null, autoSyncOnOpen: false, enableBanking: {} };
   state.bankSync.accounts ||= [];
   state.bankSync.accountMappings ||= {};
+  state.bankSync.accountAliases ||= {};
   state.bankSync.enableBanking ||= { accounts: [], config: null, diagnostics: null, lastSyncAt: "", lastImportCount: 0 };
   state.bankSync.enableBanking.accounts ||= [];
   return state.bankSync;
@@ -8586,7 +8587,9 @@ async function hydrateEnableBankingFromServer(silent = true) {
       const data = await apiFetch("/api/enablebanking/accounts");
       eb.accounts = data.accounts || eb.accounts || [];
       for (const account of eb.accounts) {
-        bankSync.accountMappings[account.id] ||= findAccountByName(account.name)?.id || `new:${account.name}`;
+        const aliased = findMappedEnableBankingAccountId(account);
+        bankSync.accountMappings[account.id] ||= aliased || findAccountByName(account.name)?.id || `new:${account.name}`;
+        if (aliased) rememberEnableBankingAccountAliases(account, {}, aliased);
       }
     }
     if (stateFingerprint(state) !== before) saveStateQuietly();
@@ -8684,7 +8687,9 @@ async function completeEnableBankingSession(code, error) {
     eb.authorizedAt = data.authorizedAt;
     eb.config = { ...(eb.config || {}), hasSession: true, sessionId: data.sessionId, authorizedAt: data.authorizedAt };
     for (const account of eb.accounts) {
-      getBankSyncState().accountMappings[account.id] ||= findAccountByName(account.name)?.id || `new:${account.name}`;
+      const aliased = findMappedEnableBankingAccountId(account);
+      getBankSyncState().accountMappings[account.id] ||= aliased || findAccountByName(account.name)?.id || `new:${account.name}`;
+      if (aliased) rememberEnableBankingAccountAliases(account, {}, aliased);
     }
     saveState();
     await refreshEnableBankingAccounts();
@@ -8703,7 +8708,9 @@ async function refreshEnableBankingAccounts() {
     const eb = bankSync.enableBanking;
     eb.accounts = data.accounts || [];
     for (const account of eb.accounts) {
-      bankSync.accountMappings[account.id] ||= findAccountByName(account.name)?.id || `new:${account.name}`;
+      const aliased = findMappedEnableBankingAccountId(account);
+      bankSync.accountMappings[account.id] ||= aliased || findAccountByName(account.name)?.id || `new:${account.name}`;
+      if (aliased) rememberEnableBankingAccountAliases(account, {}, aliased);
     }
     saveState();
     notify(`${eb.accounts.length} ${eb.accounts.length === 1 ? "Enable Banking-konto" : "Enable Banking-konti"} hentet.`);
@@ -8862,17 +8869,67 @@ function ensureLocalAccountForEnableBanking(remote, accounts) {
   const remoteAccount = accounts.find((account) => account.id === remote.externalAccountId) || { id: remote.externalAccountId, name: remote.accountName };
   const mapped = bankSync.accountMappings?.[remoteAccount.id];
   if (mapped && !mapped.startsWith("new:")) return mapped;
+  const aliased = findMappedEnableBankingAccountId(remoteAccount, remote);
+  if (aliased) {
+    bankSync.accountMappings[remoteAccount.id] = aliased;
+    rememberEnableBankingAccountAliases(remoteAccount, remote, aliased);
+    return aliased;
+  }
   const name = mapped?.startsWith("new:") ? mapped.slice(4) : remoteAccount.name || remote.accountName || "Enable Banking konto";
   const existing = findAccountByName(name);
   if (existing) {
     bankSync.accountMappings[remoteAccount.id] = existing.id;
+    rememberEnableBankingAccountAliases(remoteAccount, remote, existing.id);
     return existing.id;
   }
   const balance = Number(remoteAccount.balances?.[0]?.balance_amount?.amount || remoteAccount.balances?.[0]?.balanceAmount?.amount || 0);
   const account = { id: `eb_acc_${simpleHash(remoteAccount.id || name)}`, name, type: inferAccountType(name), balance, enableBankingAccountId: remoteAccount.id };
   state.accounts.push(account);
   bankSync.accountMappings[remoteAccount.id] = account.id;
+  rememberEnableBankingAccountAliases(remoteAccount, remote, account.id);
   return account.id;
+}
+
+function findMappedEnableBankingAccountId(remoteAccount, remote = {}) {
+  const bankSync = getBankSyncState();
+  for (const alias of enableBankingAccountAliases(remoteAccount, remote)) {
+    const accountId = bankSync.accountAliases?.[alias];
+    if (accountId && accountById(accountId)) return accountId;
+  }
+  return "";
+}
+
+function rememberEnableBankingAccountAliases(remoteAccount, remote, accountId) {
+  if (!accountId) return;
+  const bankSync = getBankSyncState();
+  for (const alias of enableBankingAccountAliases(remoteAccount, remote)) bankSync.accountAliases[alias] = accountId;
+}
+
+function enableBankingAccountAliases(remoteAccount = {}, remote = {}) {
+  const values = new Set();
+  const raw = remoteAccount.raw || remoteAccount.details || {};
+  const add = (prefix, value) => {
+    const normalized = normalizeAccountIdentifier(value);
+    if (!normalized) return;
+    values.add(`${prefix}:${normalized}`);
+    if (/^DK\d{16}$/.test(normalized)) values.add(`last4:${normalized.slice(-4)}`);
+  };
+  add("remote", remoteAccount.id || remote.externalAccountId);
+  add("iban", remoteAccount.iban || raw.account_id?.iban || raw.accountId?.iban);
+  add("bban", raw.account_id?.other?.identification || raw.accountId?.other?.identification);
+  for (const item of raw.all_account_ids || raw.allAccountIds || []) {
+    add("iban", item.iban || item.identification);
+    add("bban", item.bban || item.identification);
+  }
+  const openBanking = remote.openBanking || {};
+  add("iban", openBanking.debtorAccount);
+  add("iban", openBanking.creditorAccount);
+  add("iban", openBanking.counterpartyAccount);
+  return Array.from(values);
+}
+
+function normalizeAccountIdentifier(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 async function loadLocalCsvFolder() {
