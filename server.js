@@ -1288,15 +1288,62 @@ function supabaseHeaders() {
 
 async function readEbStore() {
   try {
-    return JSON.parse(await readFile(EB_STORE_FILE, "utf8"));
+    const store = JSON.parse(await readFile(EB_STORE_FILE, "utf8"));
+    if (store?.sessionId || store?.accounts?.length || store?.authorizations?.length) return store;
   } catch {
-    return { authorizations: [], accounts: [] };
+    // Fall through to the durable app-state mirror below.
   }
+  const mirrored = await readEbStoreFromAppState();
+  return mirrored || { authorizations: [], accounts: [] };
 }
 
 async function writeEbStore(store) {
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(EB_STORE_FILE, JSON.stringify(store, null, 2));
+  await mirrorEbStoreToAppState(store);
+}
+
+async function readEbStoreFromAppState() {
+  if (DATA_BACKEND !== "supabase") return null;
+  try {
+    const wrapper = await readSupabaseAppState();
+    const eb = wrapper?.state?.bankSync?.enableBanking || {};
+    const mirrored = eb.serverStore || {};
+    const sessionId = mirrored.sessionId || eb.sessionId || eb.config?.sessionId || "";
+    const accounts = mirrored.accounts || eb.accounts || eb.config?.accounts || [];
+    const authorizedAt = mirrored.authorizedAt || eb.authorizedAt || eb.config?.authorizedAt || "";
+    if (!sessionId && !accounts.length) return null;
+    return { authorizations: [], sessionId, accounts, authorizedAt };
+  } catch (error) {
+    console.warn("Kunne ikke læse Enable Banking-store fra app-state", error.message);
+    return null;
+  }
+}
+
+async function mirrorEbStoreToAppState(store) {
+  if (DATA_BACKEND !== "supabase" || !store?.sessionId) return;
+  try {
+    const wrapper = await readSupabaseAppState();
+    const state = wrapper?.state;
+    if (!state) return;
+    state.bankSync ||= { accounts: [], accountMappings: {}, lastSyncAt: "", config: null, enableBanking: {} };
+    state.bankSync.enableBanking ||= {};
+    const eb = state.bankSync.enableBanking;
+    const durable = {
+      sessionId: store.sessionId,
+      accounts: Array.isArray(store.accounts) ? store.accounts : [],
+      authorizedAt: store.authorizedAt || eb.authorizedAt || "",
+      updatedAt: new Date().toISOString(),
+    };
+    eb.serverStore = durable;
+    eb.sessionId = durable.sessionId;
+    eb.accounts = durable.accounts;
+    eb.authorizedAt = durable.authorizedAt;
+    eb.config = { ...(eb.config || {}), hasSession: true, sessionId: durable.sessionId, authorizedAt: durable.authorizedAt, accounts: durable.accounts };
+    await writeSupabaseAppState({ state });
+  } catch (error) {
+    console.warn("Kunne ikke spejle Enable Banking-store til app-state", error.message);
+  }
 }
 
 async function readLocalCsvFiles() {
