@@ -3616,6 +3616,7 @@ function renderReportsView() {
     ["udvikling", "Udvikling"],
     ["modtagere", "Modtagere"],
     ["faste", "Faste"],
+    ["abonnementer", "Abonnementer"],
     ["konti", "Konti"],
     ["overfoersler", "Overførsler"],
   ];
@@ -3646,6 +3647,7 @@ function renderCurrentReport() {
   if (ui.reportMode === "udvikling") return renderTrendReport();
   if (ui.reportMode === "modtagere") return renderMerchantsDeepReport();
   if (ui.reportMode === "faste") return renderRecurringReport();
+  if (ui.reportMode === "abonnementer") return renderSubscriptionRadarReport();
   if (ui.reportMode === "konti") return renderAccountsReport();
   if (ui.reportMode === "overfoersler") return renderTransfersReport();
   if (ui.reportMode === "oprydning") return renderCleanupReport();
@@ -4041,6 +4043,175 @@ function renderRecurringReport() {
       ${renderRecurringMonthMatrix(analysis)}
     </section>
   `;
+}
+
+function renderSubscriptionRadarReport() {
+  const radar = getSubscriptionRadar();
+  if (!radar.items.length) {
+    return `
+      <section class="section panel pad">
+        <div class="empty-state"><strong>Ingen abonnementskandidater endnu</strong><span>Der skal typisk flere måneders posteringer til for at finde gentagne betalinger.</span></div>
+      </section>
+    `;
+  }
+  const reviewMonthly = radar.buckets.review.reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
+  const cancelMonthly = radar.buckets.cancel.reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
+  const activeMonthly = radar.items.filter((row) => row.status !== "inactive").reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
+  return `
+    <section class="metric-band section" aria-label="Subscription Radar">
+      <div class="metric negative"><span>Fundet fast base</span><strong>${formatCurrency(activeMonthly)}</strong><small>${radar.items.length} gentagne betalinger</small></div>
+      <div class="metric"><span>Review</span><strong>${radar.buckets.review.length}</strong><small>${formatCurrency(reviewMonthly)} pr. måned</small></div>
+      <div class="metric"><span>Mulig opsigelse</span><strong>${radar.buckets.cancel.length}</strong><small>${formatCurrency(cancelMonthly)} pr. måned</small></div>
+      <div class="metric positive"><span>Ser forventet ud</span><strong>${radar.buckets.keep.length}</strong><small>Stabile eller nødvendige mønstre</small></div>
+    </section>
+
+    <section class="subscription-radar-hero section">
+      <div>
+        <p class="eyebrow">Subscription Radar · ${escapeHtml(activePeriodLabel())}</p>
+        <h2>${escapeHtml(subscriptionRadarHeadline(radar))}</h2>
+        <p>Automatisk read-only analyse af gentagne kortbetalinger, betalingsservice og faste online services. Den ændrer ikke kategorier eller posteringer.</p>
+      </div>
+      <div class="subscription-radar-total">
+        <span>Årlig effekt at kende</span>
+        <strong>${formatCurrency(activeMonthly * 12)}</strong>
+        <small>estimat fra seneste 12 måneders mønstre</small>
+      </div>
+    </section>
+
+    <section class="subscription-buckets section">
+      ${renderSubscriptionBucket("Keep", "Stabile eller sandsynligvis nødvendige", radar.buckets.keep, "keep", "Ingen oplagte keep-poster.")}
+      ${renderSubscriptionBucket("Review", "Nye, ændrede eller uklare", radar.buckets.review, "review", "Ingen review-poster lige nu.")}
+      ${renderSubscriptionBucket("Cancel candidate", "Tjek om du stadig bruger dem", radar.buckets.cancel, "cancel", "Ingen tydelige opsigelseskandidater.")}
+    </section>
+
+    <section class="section panel pad subscription-detail-panel">
+      <div class="section-heading clean-heading"><div><h2>Alle kandidater</h2><p>Klik på en modtager for at se de underliggende posteringer. Gruppéringen er et forslag — ikke en beslutning.</p></div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Modtager</th><th>Vurdering</th><th>Kategori</th><th>Frekvens</th><th>Est./md.</th><th>Senest</th><th>Hvorfor</th></tr></thead>
+          <tbody>
+            ${radar.items.map((row) => `
+              <tr>
+                <td><button class="link-button" type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button></td>
+                <td>${renderSubscriptionStatusBadge(row.bucket)}</td>
+                <td><span class="category-chip" style="--dot:${escapeHtml(row.category?.color || "#999")}">${escapeHtml(row.category?.name || "Ukendt")}</span></td>
+                <td>${escapeHtml(row.frequencyLabel)}</td>
+                <td class="amount amount-negative">${formatCurrency(row.monthlyEstimate)}</td>
+                <td><span>${escapeHtml(monthLabel(row.latestMonth))}</span><br /><small>${formatCurrency(row.latestAmount)}</small></td>
+                <td><small>${escapeHtml(row.reasons.join(" · "))}</small></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function subscriptionRadarHeadline(radar) {
+  if (radar.buckets.cancel.length) return `${radar.buckets.cancel.length} betalinger er værd at tjekke for opsigelse`;
+  if (radar.buckets.review.length) return `${radar.buckets.review.length} gentagne betalinger kræver review`;
+  return "De gentagne betalinger ser stabile ud";
+}
+
+function renderSubscriptionBucket(title, subtitle, rows, tone, emptyText) {
+  return `
+    <article class="subscription-bucket ${escapeHtml(tone)}">
+      <div class="subscription-bucket-head">
+        <span>${escapeHtml(title)}</span>
+        <strong>${rows.length}</strong>
+        <small>${escapeHtml(subtitle)}</small>
+      </div>
+      <div class="subscription-bucket-list">
+        ${rows.length ? rows.slice(0, 8).map((row) => `
+          <button type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}">
+            <span><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.reasons[0] || row.frequencyLabel)}</small></span>
+            <em>${formatCurrency(row.monthlyEstimate)}</em>
+          </button>
+        `).join("") : `<div class="empty-state compact"><strong>${escapeHtml(emptyText)}</strong><span>Radar opdateres automatisk med ny bankhistorik.</span></div>`}
+      </div>
+    </article>
+  `;
+}
+
+function renderSubscriptionStatusBadge(bucket) {
+  const labels = { keep: "Keep", review: "Review", cancel: "Cancel?" };
+  const tone = bucket === "keep" ? "positive" : bucket === "cancel" ? "negative" : "muted";
+  return `<span class="status-badge ${tone}">${escapeHtml(labels[bucket] || "Review")}</span>`;
+}
+
+function getSubscriptionRadar() {
+  const analysis = getRecurringSpendAnalysis({ monthCount: 12, includeTransfers: false });
+  const items = analysis.rows
+    .map((row) => enrichSubscriptionRadarItem(row, analysis))
+    .filter(Boolean)
+    .sort((a, b) => bucketSortWeight(a.bucket) - bucketSortWeight(b.bucket) || b.monthlyEstimate - a.monthlyEstimate || a.name.localeCompare(b.name));
+  const buckets = {
+    keep: items.filter((row) => row.bucket === "keep"),
+    review: items.filter((row) => row.bucket === "review"),
+    cancel: items.filter((row) => row.bucket === "cancel"),
+  };
+  return { items, buckets, analysis };
+}
+
+function bucketSortWeight(bucket) {
+  return { review: 0, cancel: 1, keep: 2 }[bucket] ?? 9;
+}
+
+function enrichSubscriptionRadarItem(row, analysis) {
+  const text = normalize([row.name, ...(row.examples || [])].join(" "));
+  const category = row.category || categoryById(row.categoryId) || categoryById("cat-other");
+  const keywordHit = isSubscriptionKeywordText(text);
+  const variableSpend = isVariableEverydaySpendText(text, category?.id);
+  const recurringEnough = row.months.length >= 2 || row.count >= 3;
+  const meaningfulAmount = Number(row.monthlyEstimate || 0) >= 15;
+  if (!recurringEnough || !meaningfulAmount) return null;
+  if (!keywordHit && variableSpend) return null;
+  if (!keywordHit && row.frequency === "irregular" && row.months.length < 3) return null;
+
+  const essential = isEssentialRecurringText(text, category?.id);
+  const optional = isOptionalSubscriptionText(text, category?.id);
+  const latestIndex = analysis.months.indexOf(row.latestMonth);
+  const monthsSinceLatest = latestIndex >= 0 ? analysis.months.length - 1 - latestIndex : 0;
+  const reasons = [];
+  if (row.status === "new") reasons.push("Ny i de seneste måneder");
+  if (row.status === "increased") reasons.push(`Steget ${formatSignedCurrency(row.delta)} mod normalniveau`);
+  if (row.status === "decreased") reasons.push(`Faldet ${formatSignedCurrency(row.delta)} mod normalniveau`);
+  if (row.status === "inactive" || monthsSinceLatest >= 2) reasons.push("Ikke set i de seneste måneder — tjek om den er stoppet");
+  if (row.frequency !== "monthly") reasons.push(`${row.frequencyLabel} betaling`);
+  if (Number(row.monthlyEstimate || 0) >= 300) reasons.push("Høj månedlig effekt");
+  if (category?.id === fallbackCategoryId()) reasons.push("Uklar kategori");
+  if (optional) reasons.push("Valgfri/digital service — tjek faktisk brug");
+  if (essential) reasons.push("Ligner nødvendig fast betaling");
+  if (!reasons.length) reasons.push("Stabilt gentaget mønster");
+
+  const needsReview = ["new", "increased"].includes(row.status) || row.frequency !== "monthly" || Number(row.monthlyEstimate || 0) >= 300 || category?.id === fallbackCategoryId();
+  let bucket = "review";
+  if (row.status === "inactive" || monthsSinceLatest >= 2) bucket = "cancel";
+  else if (needsReview) bucket = "review";
+  else if (optional && !essential) bucket = "cancel";
+  else bucket = "keep";
+
+  return { ...row, category, bucket, reasons, essential, optional, monthsSinceLatest };
+}
+
+function isSubscriptionKeywordText(text) {
+  return /(spotify|netflix|hbo|max |viaplay|disney|youtube|google|apple|icloud|itunes|openai|chatgpt|anthropic|claude|microsoft|office|adobe|dropbox|github|notion|figma|linear|strava|podimo|mofibo|audible|abonnement|subscription|medlemskab|kontingent|fitness|sportinghealthclub|gym|yousee|tdc|telia|telenor|eesy|oister|internet|mobil|forsikring|alarm|letsikring|norlys|ewii|energi|el |vandvaerk|vandværk|betalingsservice|avis|berlingske|politiken|borsen|børsen|pfa|pension)/.test(text);
+}
+
+function isOptionalSubscriptionText(text, categoryId = "") {
+  if (categoryId === "cat-lifestyle" || categoryId === "cat-shopping") return true;
+  return /(spotify|netflix|hbo|max |viaplay|disney|youtube|google|apple|icloud|itunes|openai|chatgpt|anthropic|claude|microsoft|office|adobe|dropbox|github|notion|figma|linear|strava|podimo|mofibo|audible|abonnement|subscription|medlemskab|kontingent|fitness|sportinghealthclub|gym|avis|berlingske|politiken|borsen|børsen)/.test(text);
+}
+
+function isEssentialRecurringText(text, categoryId = "") {
+  if (["cat-housing", "cat-family", "cat-summerhouse"].includes(categoryId)) return true;
+  return /(totalkredit|brf|realkredit|husleje|ejerforening|bolig|forsikring|norlys|energi|el |vandvaerk|vandværk|kommune|vuggestue|institution|pfa|pension|adm service fyn|faelles|fælles|budgetkonto|yousee|tdc|telia|internet|mobil|alarm|letsikring)/.test(text);
+}
+
+function isVariableEverydaySpendText(text, categoryId = "") {
+  if (categoryId === "cat-groceries") return true;
+  return /(netto|rema|foetex|føtex|meny|coop|superbrugsen|dagli|wolt|restaurant|cafe|café|bar |mobilepay|matas|normal|magasin|uniqlo|taxa|taxi|easypark|circle k|shell|q8)/.test(text);
 }
 
 function fixedSpendHeadline(analysis, plan = { items: [], total: 0 }) {
