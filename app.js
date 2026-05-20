@@ -394,6 +394,7 @@ function normalizeStateForRuntime(parsed) {
   parsed.settings.privacyMode = Boolean(parsed.settings.privacyMode);
   parsed.settings.wealth = normalizeWealthSettings(parsed.settings.wealth);
   parsed.settings.fixedExpenses = normalizeFixedExpenseSettings(parsed.settings.fixedExpenses);
+  parsed.settings.subscriptions = normalizeSubscriptionSettings(parsed.settings.subscriptions);
   parsed.movingProject = normalizeMovingProject(parsed.movingProject);
   return parsed;
 }
@@ -1171,6 +1172,18 @@ function normalizeFixedExpenseSettings(settings = {}) {
       }))
       .filter((item) => item.amount > 0 || item.name),
   };
+}
+
+function normalizeSubscriptionSettings(settings = {}) {
+  const excludedKeys = Array.isArray(settings.excludedKeys) ? settings.excludedKeys : [];
+  return {
+    excludedKeys: Array.from(new Set(excludedKeys.map((key) => String(key || "").trim()).filter(Boolean))).slice(0, 500),
+  };
+}
+
+function getSubscriptionSettings() {
+  state.settings.subscriptions = normalizeSubscriptionSettings(state.settings.subscriptions);
+  return state.settings.subscriptions;
 }
 
 function getFixedExpenseSettings() {
@@ -4047,71 +4060,77 @@ function renderRecurringReport() {
 
 function renderSubscriptionRadarReport() {
   const radar = getSubscriptionRadar();
-  if (!radar.items.length) {
+  const activeMonthly = radar.items.reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
+  const hiddenMonthly = radar.hiddenItems.reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
+  if (!radar.items.length && !radar.hiddenItems.length) {
     return `
       <section class="section panel pad">
-        <div class="empty-state"><strong>Ingen abonnementskandidater endnu</strong><span>Der skal typisk flere måneders posteringer til for at finde gentagne betalinger.</span></div>
+        <div class="empty-state"><strong>Ingen aktuelle månedlige subscriptions</strong><span>Listen viser kun betalinger med samme beløb, der går igen månedligt og stadig er aktuelle.</span></div>
       </section>
     `;
   }
-  const reviewMonthly = radar.buckets.review.reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
-  const cancelMonthly = radar.buckets.cancel.reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
-  const activeMonthly = radar.items.filter((row) => row.status !== "inactive").reduce((sum, row) => sum + Number(row.monthlyEstimate || 0), 0);
   return `
-    <section class="metric-band section" aria-label="Subscription Radar">
-      <div class="metric negative"><span>Fundet fast base</span><strong>${formatCurrency(activeMonthly)}</strong><small>${radar.items.length} gentagne betalinger</small></div>
-      <div class="metric"><span>Review</span><strong>${radar.buckets.review.length}</strong><small>${formatCurrency(reviewMonthly)} pr. måned</small></div>
-      <div class="metric"><span>Mulig opsigelse</span><strong>${radar.buckets.cancel.length}</strong><small>${formatCurrency(cancelMonthly)} pr. måned</small></div>
-      <div class="metric positive"><span>Ser forventet ud</span><strong>${radar.buckets.keep.length}</strong><small>Stabile eller nødvendige mønstre</small></div>
+    <section class="metric-band section" aria-label="Aktuelle månedlige subscriptions">
+      <div class="metric negative"><span>Aktuelle subscriptions</span><strong>${formatCurrency(activeMonthly)}</strong><small>${radar.items.length} aktive betalinger</small></div>
+      <div class="metric"><span>Årligt niveau</span><strong>${formatCurrency(activeMonthly * 12)}</strong><small>Kun samme beløb pr. måned</small></div>
+      <div class="metric positive"><span>Stram filtrering</span><strong>${radar.items.length}</strong><small>Gentaget ens beløb</small></div>
+      <div class="metric"><span>Skjult manuelt</span><strong>${radar.hiddenItems.length}</strong><small>${hiddenMonthly ? `${formatCurrency(hiddenMonthly)}/md.` : "Kan gendannes"}</small></div>
     </section>
 
     <section class="subscription-radar-hero section">
       <div>
-        <p class="eyebrow">Subscription Radar · ${escapeHtml(activePeriodLabel())}</p>
+        <p class="eyebrow">Subscriptions · ${escapeHtml(radar.referenceLabel)}</p>
         <h2>${escapeHtml(subscriptionRadarHeadline(radar))}</h2>
-        <p>Automatisk read-only analyse af gentagne kortbetalinger, betalingsservice og faste online services. Den ændrer ikke kategorier eller posteringer.</p>
+        <p>Kun aktuelle månedlige subscriptions: samme modtager, samme beløb, én betaling pr. måned og aktivitet i den seneste afsluttede måned eller nuværende måned. Bolig, lån, institution, dagligvarer og tilfældige gentagelser er sorteret fra.</p>
       </div>
       <div class="subscription-radar-total">
-        <span>Årlig effekt at kende</span>
-        <strong>${formatCurrency(activeMonthly * 12)}</strong>
-        <small>estimat fra seneste 12 måneders mønstre</small>
+        <span>Månedligt</span>
+        <strong>${formatCurrency(activeMonthly)}</strong>
+        <small>${radar.items.length ? `${radar.items.length} aktive subscriptions` : "Ingen aktive vist"}</small>
       </div>
-    </section>
-
-    <section class="subscription-buckets section">
-      ${renderSubscriptionBucket("Keep", "Stabile eller sandsynligvis nødvendige", radar.buckets.keep, "keep", "Ingen oplagte keep-poster.")}
-      ${renderSubscriptionBucket("Review", "Nye, ændrede eller uklare", radar.buckets.review, "review", "Ingen review-poster lige nu.")}
-      ${renderSubscriptionBucket("Cancel candidate", "Tjek om du stadig bruger dem", radar.buckets.cancel, "cancel", "Ingen tydelige opsigelseskandidater.")}
     </section>
 
     <section class="section panel pad subscription-detail-panel">
-      <div class="section-heading clean-heading"><div><h2>Alle kandidater</h2><p>Klik på en modtager for at se de underliggende posteringer. Gruppéringen er et forslag — ikke en beslutning.</p></div></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Modtager</th><th>Vurdering</th><th>Kategori</th><th>Frekvens</th><th>Est./md.</th><th>Senest</th><th>Hvorfor</th></tr></thead>
-          <tbody>
-            ${radar.items.map((row) => `
-              <tr>
-                <td><button class="link-button" type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button></td>
-                <td>${renderSubscriptionStatusBadge(row.bucket)}</td>
-                <td><span class="category-chip" style="--dot:${escapeHtml(row.category?.color || "#999")}">${escapeHtml(row.category?.name || "Ukendt")}</span></td>
-                <td>${escapeHtml(row.frequencyLabel)}</td>
-                <td class="amount amount-negative">${formatCurrency(row.monthlyEstimate)}</td>
-                <td><span>${escapeHtml(monthLabel(row.latestMonth))}</span><br /><small>${formatCurrency(row.latestAmount)}</small></td>
-                <td><small>${escapeHtml(row.reasons.join(" · "))}</small></td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
+      <div class="section-heading clean-heading"><div><h2>Aktuelle månedlige subscriptions</h2><p>Klik på “Fjern fra listen”, hvis en postering ikke er en aktuel subscription. Det skjuler kun rækken her — bankposteringerne bliver ikke slettet eller ændret.</p></div></div>
+      ${renderCurrentSubscriptionTable(radar.items, { hidden: false })}
     </section>
+
+    ${radar.hiddenItems.length ? `
+      <section class="section panel pad subscription-detail-panel">
+        <div class="section-heading clean-heading"><div><h2>Skjult fra subscription-listen</h2><p>Rækker du selv har fjernet. De kan gendannes, hvis de alligevel er aktuelle subscriptions.</p></div></div>
+        ${renderCurrentSubscriptionTable(radar.hiddenItems, { hidden: true })}
+      </section>
+    ` : ""}
+  `;
+}
+
+function renderCurrentSubscriptionTable(rows, { hidden = false } = {}) {
+  if (!rows.length) return `<div class="empty-state compact"><strong>Ingen rækker</strong><span>${hidden ? "Intet er skjult manuelt." : "Ingen aktuelle månedlige subscriptions matcher den stramme regel."}</span></div>`;
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Subscription</th><th>Kategori</th><th>Beløb/md.</th><th>Senest</th><th>Dokumentation</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td><button class="link-button" type="button" data-action="open-drilldown" data-drilldown="merchant" data-id="${escapeHtml(row.name)}">${escapeHtml(row.name)}</button><br /><small>${escapeHtml(row.examples[0] || "")}</small></td>
+              <td><span class="category-chip" style="--dot:${escapeHtml(row.category?.color || "#999")}">${escapeHtml(row.category?.name || "Ukendt")}</span></td>
+              <td class="amount amount-negative">${formatCurrency(row.monthlyEstimate)}</td>
+              <td><span>${escapeHtml(monthLabel(row.latestMonth))}</span><br /><small>${formatCurrency(row.latestAmount)}</small></td>
+              <td><small>${row.months.length} måneder · ${row.currentStreak} i træk · ${row.transactions.length} posteringer</small></td>
+              <td><button class="icon-button" type="button" data-action="${hidden ? "restore-subscription-candidate" : "hide-subscription-candidate"}" data-id="${escapeHtml(row.key)}" data-name="${escapeHtml(row.name)}">${hidden ? "Gendan" : "Fjern fra listen"}</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 
 function subscriptionRadarHeadline(radar) {
-  if (radar.buckets.cancel.length) return `${radar.buckets.cancel.length} betalinger er værd at tjekke for opsigelse`;
-  if (radar.buckets.review.length) return `${radar.buckets.review.length} gentagne betalinger kræver review`;
-  return "De gentagne betalinger ser stabile ud";
+  if (radar.items.length) return `${radar.items.length} aktuelle månedlige subscriptions er fundet`;
+  if (radar.hiddenItems.length) return "Alle fundne subscriptions er skjult manuelt";
+  return "Ingen aktuelle månedlige subscriptions fundet";
 }
 
 function renderSubscriptionBucket(title, subtitle, rows, tone, emptyText) {
@@ -4141,17 +4160,114 @@ function renderSubscriptionStatusBadge(bucket) {
 }
 
 function getSubscriptionRadar() {
-  const analysis = getRecurringSpendAnalysis({ monthCount: 12, includeTransfers: false });
-  const items = analysis.rows
-    .map((row) => enrichSubscriptionRadarItem(row, analysis))
+  const settings = getSubscriptionSettings();
+  const excluded = new Set(settings.excludedKeys || []);
+  const months = lastMonths(ui.month || currentMonthKey(), 12);
+  const referenceMonth = latestFixedExpenseCheckMonth(months);
+  const grouped = new Map();
+  for (const month of months) {
+    for (const tx of getReportingTransactionsForMonth(month)) {
+      if (ui.reportAccountFilter !== "all" && tx.accountId !== ui.reportAccountFilter) continue;
+      if (!isCurrentSubscriptionCandidateTransaction(tx)) continue;
+      const name = merchantName(tx.description);
+      const amount = Math.abs(Number(tx.amount || 0));
+      const key = subscriptionCandidateKey(name, amount);
+      const category = categoryById(tx.categoryId);
+      const entry = grouped.get(key) || {
+        key,
+        name,
+        amount,
+        category,
+        categoryId: tx.categoryId,
+        months: new Set(),
+        monthCounts: {},
+        transactions: [],
+        examples: [],
+        latestMonth: month,
+        latestAmount: amount,
+      };
+      entry.months.add(month);
+      entry.monthCounts[month] = (entry.monthCounts[month] || 0) + 1;
+      entry.transactions.push(tx);
+      if (entry.examples.length < 3) entry.examples.push(tx.description);
+      if (month >= entry.latestMonth) {
+        entry.latestMonth = month;
+        entry.latestAmount = amount;
+      }
+      grouped.set(key, entry);
+    }
+  }
+  const qualified = Array.from(grouped.values())
+    .map((entry) => enrichCurrentSubscriptionRow(entry, months, referenceMonth))
     .filter(Boolean)
-    .sort((a, b) => bucketSortWeight(a.bucket) - bucketSortWeight(b.bucket) || b.monthlyEstimate - a.monthlyEstimate || a.name.localeCompare(b.name));
-  const buckets = {
-    keep: items.filter((row) => row.bucket === "keep"),
-    review: items.filter((row) => row.bucket === "review"),
-    cancel: items.filter((row) => row.bucket === "cancel"),
+    .sort((a, b) => b.monthlyEstimate - a.monthlyEstimate || a.name.localeCompare(b.name));
+  const items = qualified.filter((row) => !excluded.has(row.key));
+  const hiddenItems = qualified.filter((row) => excluded.has(row.key));
+  return { items, hiddenItems, rows: qualified, months, referenceMonth, referenceLabel: monthLabel(referenceMonth) };
+}
+
+function enrichCurrentSubscriptionRow(entry, analysisMonths, referenceMonth) {
+  const months = Array.from(entry.months || []).sort();
+  if (months.length < 3) return null;
+  const referenceIndex = analysisMonths.indexOf(referenceMonth);
+  const latestIndex = analysisMonths.indexOf(entry.latestMonth);
+  if (referenceIndex < 0 || latestIndex < referenceIndex) return null;
+  const recentWindow = analysisMonths.slice(Math.max(0, referenceIndex - 3), referenceIndex + 1);
+  const recentHits = recentWindow.filter((month) => entry.months.has(month)).length;
+  if (recentHits < Math.min(3, recentWindow.length)) return null;
+  const currentStreak = subscriptionCurrentStreak(entry.months, analysisMonths, referenceIndex);
+  if (currentStreak < 3) return null;
+  const monthCounts = Object.values(entry.monthCounts || {});
+  if (monthCounts.some((count) => count !== 1)) return null;
+  return {
+    ...entry,
+    months,
+    currentStreak,
+    monthlyEstimate: entry.amount,
+    annualEstimate: entry.amount * 12,
+    frequency: "monthly",
+    frequencyLabel: "Månedlig",
+    status: "active",
+    bucket: "keep",
+    reasons: ["Samme beløb", `${currentStreak} måneder i træk`, `Aktuel ${monthLabel(entry.latestMonth)}`],
   };
-  return { items, buckets, analysis };
+}
+
+function subscriptionCurrentStreak(monthSet, analysisMonths, referenceIndex) {
+  let streak = 0;
+  for (let index = referenceIndex; index >= 0; index -= 1) {
+    if (!monthSet.has(analysisMonths[index])) break;
+    streak += 1;
+  }
+  return streak;
+}
+
+function subscriptionCandidateKey(name, amount) {
+  return `${normalize(name)}::${subscriptionAmountKey(amount)}`;
+}
+
+function subscriptionAmountKey(amount) {
+  return (Math.round(Math.abs(Number(amount || 0)) * 100) / 100).toFixed(2);
+}
+
+function isCurrentSubscriptionCandidateTransaction(tx) {
+  if (!isReportExpense(tx)) return false;
+  const amount = Math.abs(Number(tx?.amount || 0));
+  if (!Number.isFinite(amount) || amount < 15) return false;
+  const category = categoryById(tx.categoryId);
+  const text = normalize(`${tx?.description || ""} ${tx?.note || ""} ${tx?.counterpartyName || ""} ${tx?.relationKey || ""} ${merchantName(tx?.description || "")}`);
+  if (isNonSubscriptionFixedBillText(text, category?.id)) return false;
+  if (isVariableEverydaySpendText(text, category?.id)) return false;
+  return isStrictSubscriptionText(text);
+}
+
+function isStrictSubscriptionText(text) {
+  return /(spotify|netflix|hbo|max |viaplay|disney|youtube|youtubepremium|google \*youtube|apple\.com\/bill|icloud|itunes|openai|chatgpt|anthropic|claude|microsoft|office 365|adobe|dropbox|github|notion|figma|linear|strava|podimo|mofibo|audible|blizzard|battle\.net|tv2|tesla|abonnement|subscription|medlemskab|kontingent|fitness|sportinghealthclub|health club|gym|yousee|tdc|telia|telenor|eesy|oister|internet|mobil)/.test(text);
+}
+
+function isNonSubscriptionFixedBillText(text, categoryId = "") {
+  if (["cat-salary", "cat-transfer", "cat-savings", "cat-reimburse", "cat-family", "cat-summerhouse"].includes(categoryId)) return true;
+  return /(totalkredit|brf|realkredit|e\/f |ejerforening|husleje|bolig|kommune|frederiksberg|grundskyld|ejendomsskat|institution|vuggestue|karla|forsikring|pfa|pension|adm\.service fyn|faelles|fælles|budgetkonto|sommerhus|vandvaerk|vandværk|norlys|energi| el |varme|bank norwegian|laan|lån|afdrag)/.test(text);
 }
 
 function bucketSortWeight(bucket) {
@@ -6732,6 +6848,24 @@ async function handleClick(event) {
     ui.drawer = null;
     ui.drawerTxId = null;
     render();
+    return;
+  }
+
+  if (action === "hide-subscription-candidate") {
+    const settings = getSubscriptionSettings();
+    if (!settings.excludedKeys.includes(id)) settings.excludedKeys.push(id);
+    saveState();
+    render();
+    notify(`${button.dataset.name || "Subscription"} er fjernet fra subscription-listen. Posteringerne er ikke ændret.`);
+    return;
+  }
+
+  if (action === "restore-subscription-candidate") {
+    const settings = getSubscriptionSettings();
+    settings.excludedKeys = settings.excludedKeys.filter((key) => key !== id);
+    saveState();
+    render();
+    notify(`${button.dataset.name || "Subscription"} er gendannet i subscription-listen.`);
     return;
   }
 
