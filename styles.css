@@ -125,6 +125,26 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.claes-home-link {
+  margin-left: auto;
+  border: 1px solid rgba(247, 243, 233, 0.22);
+  border-radius: 999px;
+  padding: 8px 10px;
+  color: #f7f3e9;
+  background: rgba(247, 243, 233, 0.1);
+  text-decoration: none;
+  font-size: 0.75rem;
+  font-weight: 900;
+  line-height: 1;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.claes-home-link:hover {
+  border-color: rgba(247, 243, 233, 0.38);
+  background: rgba(247, 243, 233, 0.18);
+  transform: translateY(-1px);
+}
+
 .nav-list {
   display: grid;
   gap: 6px;
@@ -5188,6 +5208,11 @@ button.list-row,
   .brand-text strong {
     font-size: 0.98rem;
     line-height: 1.05;
+  }
+
+  .claes-home-link {
+    padding: 8px 10px;
+    font-size: 0.7rem;
   }
 
   .brand-text span,

@@ -1,6 +1,7 @@
 const STORAGE_KEY = "finansblik:v1";
 const BRAND_NAME = "Claes' privatøkonomi";
 const BRAND_TAGLINE = "Overblik og indsigt i privatøkonomien";
+const CLAES_HOME_URL = "http://localhost:4174/";
 
 const NAV_ITEMS = [
   { id: "overblik", label: "Overblik", hint: "" },
@@ -638,6 +639,7 @@ function render() {
             <strong>${escapeHtml(BRAND_NAME)}</strong>
             <span>${escapeHtml(BRAND_TAGLINE)}</span>
           </div>
+          <a class="claes-home-link" href="${escapeHtml(CLAES_HOME_URL)}" title="Åbn Claes Home">Home</a>
         </div>
         <nav class="nav-list" aria-label="Primær navigation">
           ${NAV_ITEMS.map(
